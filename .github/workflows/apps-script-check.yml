@@ -44,7 +44,7 @@ jobs:
             'date preservation helper':'function dateValue_(' in s,
             'ISO date regex parses yyyy-mm-dd':r'/^(\d{4})-(\d{2})-(\d{2})$/.exec(value)' in s,
             'script lock':'LockService.getScriptLock()' in s,
-            'revision result validation':"['PASS','FAIL','PARTIAL']" in s,
+            'revision result validation accepts dropdown labels':"resultMap = {pass: 'Pass', fail: 'Fail', partial: 'Partial'}" in s and "['Pass','Fail','Partial']" in s,
             'no external web endpoint':'UrlFetchApp.fetch' not in s,
             'web handlers use explicit spreadsheet ID':'getActiveSpreadsheet()' not in s,
             'no API/client secret embedded':'client_secret' not in s.lower(),
