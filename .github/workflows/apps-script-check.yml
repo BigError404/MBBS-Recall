@@ -42,6 +42,7 @@ jobs:
             'archive preserves all nine fields':'...rawCurrent' in s,
             'archived IDs cannot be reused':'Include archived IDs' in s,
             'date preservation helper':'function dateValue_(' in s,
+            'ISO date regex parses yyyy-mm-dd':r'/^(\d{4})-(\d{2})-(\d{2})$/.exec(value)' in s,
             'script lock':'LockService.getScriptLock()' in s,
             'revision result validation':"['PASS','FAIL','PARTIAL']" in s,
             'no external web endpoint':'UrlFetchApp.fetch' not in s,
