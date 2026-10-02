@@ -45,7 +45,7 @@ jobs:
           assert.match(app, /mbbs-recall-sheets-preview-v1/, 'Preview must use a separate IndexedDB/localStorage key');
           assert.doesNotMatch(app, /mbbs-recall-pro-v5/, 'Preview must not use production local storage keys');
           assert.match(html, /PREVIEW ONLY/, 'Visible preview warning must be present');
-          assert.match(sw, /mbbs-recall-sheets-preview-v\\d+/, 'Preview must use a versioned separate cache');
+          assert.match(sw, /mbbs-recall-sheets-preview-v[0-9]+/, 'Preview must use a versioned separate cache');
           assert.match(sw, /k\.startsWith\(CACHE_PREFIX\)/, 'Preview cleanup must only remove preview caches');
           assert.match(api, /spreadsheets\.readonly/, 'OAuth scope must remain read-only');
           assert.doesNotMatch(api, /spreadsheets\.values\.(?:update|append|clear)|batchUpdate/, 'No write endpoint allowed');
