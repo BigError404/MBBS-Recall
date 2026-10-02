@@ -46,6 +46,7 @@ jobs:
             'script lock':'LockService.getScriptLock()' in s,
             'revision result validation':"['PASS','FAIL','PARTIAL']" in s,
             'no external web endpoint':'UrlFetchApp.fetch' not in s,
+            'web handlers use explicit spreadsheet ID':'getActiveSpreadsheet()' not in s,
             'no API/client secret embedded':'client_secret' not in s.lower(),
           }
           for k,v in checks.items(): print(('PASS' if v else 'FAIL')+' '+k)
