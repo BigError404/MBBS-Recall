@@ -153,10 +153,12 @@ function addRevision(input) {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const rev = requireSheet_(ss, CFG.REVISION);
     const id = String(input && input.id || '').trim();
-    const result = String(input && input.result || '').trim().toUpperCase();
+    const resultInput = String(input && input.result || '').trim().toLowerCase();
+    const resultMap = {pass: 'Pass', fail: 'Fail', partial: 'Partial'};
+    const result = resultMap[resultInput] || '';
     const notes = String(input && input.notes || '').trim();
     if (!id) throw new Error('Choose an IMP ID.');
-    if (!['PASS','FAIL','PARTIAL'].includes(result)) throw new Error('Result must be Pass, Fail, or Partial.');
+    if (!['Pass','Fail','Partial'].includes(result)) throw new Error('Result must be Pass, Fail, or Partial.');
     const master = requireSheet_(ss, CFG.MASTER);
     const lastMaster = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
     const ids = lastMaster >= CFG.MASTER_FIRST_ROW ? master.getRange(CFG.MASTER_FIRST_ROW,1,lastMaster-CFG.MASTER_FIRST_ROW+1,1).getDisplayValues().flat() : [];
