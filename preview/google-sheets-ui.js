@@ -87,25 +87,33 @@
     if (busy) return;
     inputs();
     busy = true; controls();
-    status('Reading row 1 only from selected workbook tabs…');
-    const targets = ['Master Entry', 'Revision Log', 'TODAY DUE', 'THIS WEEK', 'Data Health'];
+    status('Reading the actual header row from selected workbook tabs…');
+    // Master Entry row 1 contains instructions, not field names. Its actual headers are on row 2.
+    const targets = [
+      { title: 'Master Entry', row: 2 },
+      { title: 'Revision Log', row: 1 },
+      { title: 'TODAY DUE', row: 1 },
+      { title: 'THIS WEEK', row: 1 },
+      { title: 'Data Health', row: 1 }
+    ];
     const root = document.querySelector('#gsHeaderResults');
     try {
       const results = [];
-      for (const title of targets) {
+      for (const target of targets) {
         try {
-          const data = await window.MBBSGoogleSheets.readRange(cfg.spreadsheetId, "'" + title.replace(/'/g, "''") + "'!1:1");
-          results.push({ title, headers: (data.values && data.values[0]) || [], error: '' });
+          const range = "'" + target.title.replace(/'/g, "''") + "'!" + target.row + ":" + target.row;
+          const data = await window.MBBSGoogleSheets.readRange(cfg.spreadsheetId, range);
+          results.push({ title: target.title, row: target.row, headers: (data.values && data.values[0]) || [], error: '' });
         } catch (e) {
-          results.push({ title, headers: [], error: e.message || String(e) });
+          results.push({ title: target.title, row: target.row, headers: [], error: e.message || String(e) });
         }
       }
-      if (root) root.innerHTML = '<div class="notice good">Header inspection complete. Only row 1 was requested; no study records were read, imported, or changed.</div>' +
-        results.map(r => '<section class="panel"><h3>' + esc(r.title) + '</h3>' +
+      if (root) root.innerHTML = '<div class="notice good">Header inspection complete. Master Entry uses row 2 for headers; the other selected tabs use row 1. No study records were imported or changed.</div>' +
+        results.map(r => '<section class="panel"><h3>' + esc(r.title) + ' — header row ' + r.row + '</h3>' +
           (r.error ? '<p class="notice warn">' + esc(r.error) + '</p>' :
-            (r.headers.length ? '<div class="tablewrap"><table><tbody>' + r.headers.map((h, i) => '<tr><th>' + (i + 1) + '</th><td>' + esc(h) + '</td></tr>').join('') + '</tbody></table></div>' : '<p>No non-empty header cells returned.</p>')) +
+            (r.headers.length ? '<div class="tablewrap"><table><tbody>' + r.headers.map((h, i) => '<tr><th>' + String.fromCharCode(65 + i) + '</th><td>' + esc(h) + '</td></tr>').join('') + '</tbody></table></div>' : '<p>No non-empty header cells returned.</p>')) +
           '</section>').join('');
-      status('Header-only check finished. Review the displayed column names before any data mapping.', 'good');
+      status('Correct header rows inspected. Review these field names before any data mapping.', 'good');
     } catch (e) {
       status(e.message || String(e), 'error');
     } finally {
