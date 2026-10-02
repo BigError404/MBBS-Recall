@@ -87,38 +87,56 @@
     if (busy) return;
     inputs();
     busy = true; controls();
-    status('Reading the actual header row from selected workbook tabs…');
-    // Master Entry row 1 contains instructions, not field names. Its actual headers are on row 2.
-    const targets = [
-      { title: 'Master Entry', row: 2 },
-      { title: 'Revision Log', row: 1 },
-      { title: 'TODAY DUE', row: 1 },
-      { title: 'THIS WEEK', row: 1 },
-      { title: 'Data Health', row: 1 }
-    ];
+    status('Mapping workbook headers in one read-only batch…');
     const root = document.querySelector('#gsHeaderResults');
     try {
-      const results = [];
-      for (const target of targets) {
-        try {
-          const range = "'" + target.title.replace(/'/g, "''") + "'!" + target.row + ":" + target.row;
-          const data = await window.MBBSGoogleSheets.readRange(cfg.spreadsheetId, range);
-          results.push({ title: target.title, row: target.row, headers: (data.values && data.values[0]) || [], error: '' });
-        } catch (e) {
-          results.push({ title: target.title, row: target.row, headers: [], error: e.message || String(e) });
-        }
+      if (!cfg.sheets.length) {
+        const book = await window.MBBSGoogleSheets.getSpreadsheet(cfg.spreadsheetId);
+        cfg.sheets = book.sheets;
       }
-      if (root) root.innerHTML = '<div class="notice good">Header inspection complete. Master Entry uses row 2 for headers; the other selected tabs use row 1. No study records were imported or changed.</div>' +
-        results.map(r => '<section class="panel"><h3>' + esc(r.title) + ' — header row ' + r.row + '</h3>' +
-          (r.error ? '<p class="notice warn">' + esc(r.error) + '</p>' :
-            (r.headers.length ? '<div class="tablewrap"><table><tbody>' + r.headers.map((h, i) => '<tr><th>' + String.fromCharCode(65 + i) + '</th><td>' + esc(h) + '</td></tr>').join('') + '</tbody></table></div>' : '<p>No non-empty header cells returned.</p>')) +
-          '</section>').join('');
-      status('Correct header rows inspected. Review these field names before any data mapping.', 'good');
+      // Read only rows 1–2 of every tab, in one batch request. Never reads study records.
+      const ranges = [];
+      const owners = [];
+      for (const sheet of cfg.sheets) {
+        const safeTitle = "'" + sheet.title.replace(/'/g, "''") + "'";
+        ranges.push(safeTitle + '!1:2');
+        owners.push(sheet);
+      }
+      const response = await window.MBBSGoogleSheets.readRanges(cfg.spreadsheetId, ranges);
+      const valueRanges = response.valueRanges || [];
+      const letter = i => {
+        let n = i + 1, out = '';
+        while (n > 0) { const rem = (n - 1) % 26; out = String.fromCharCode(65 + rem) + out; n = Math.floor((n - 1) / 26); }
+        return out;
+      };
+      const nonEmpty = row => (row || []).filter(v => String(v ?? '').trim() !== '').length;
+      const report = owners.map((sheet, i) => {
+        const values = valueRanges[i]?.values || [];
+        const row1 = values[0] || [], row2 = values[1] || [];
+        const isDataTab = /^(Master Entry|Revision Log|TODAY DUE|THIS WEEK|Data Health|Dashboard|START HERE)$/i.test(sheet.title) ||
+          /^(Medicine|Surgery|Obstetrics|Gynaecology|Pediatrics|Paediatrics|Pathology|Pharmacology|Microbiology|Anatomy|Physiology|Biochemistry|Radiology|Psychiatry|Community Medicine|Forensic Medicine)$/i.test(sheet.title);
+        const preferredRow = /^Master Entry$/i.test(sheet.title) || /^(Medicine|Surgery|Obstetrics|Gynaecology|Pediatrics|Paediatrics|Pathology|Pharmacology|Microbiology|Anatomy|Physiology|Biochemistry|Radiology|Psychiatry|Community Medicine|Forensic Medicine)$/i.test(sheet.title) ? 2 : 1;
+        const primary = preferredRow === 2 ? row2 : row1;
+        const secondary = preferredRow === 2 ? row1 : row2;
+        const primaryCount = nonEmpty(primary), secondaryCount = nonEmpty(secondary);
+        const useRow = primaryCount ? preferredRow : (secondaryCount ? (preferredRow === 1 ? 2 : 1) : preferredRow);
+        const chosen = useRow === 1 ? row1 : row2;
+        const headers = chosen.map((value, col) => ({ col: letter(col), value: String(value ?? '').trim() })).filter(cell => cell.value);
+        return { title: sheet.title, row: useRow, headers, row1Count: nonEmpty(row1), row2Count: nonEmpty(row2), isDataTab };
+      });
+      const key = report.filter(x => x.isDataTab);
+      const other = report.filter(x => !x.isDataTab);
+      const render = item => '<section class="panel"><h3>' + esc(item.title) + ' — candidate header row ' + item.row + '</h3>' +
+        '<p class="footnote">Non-empty cells: row 1 = ' + item.row1Count + ', row 2 = ' + item.row2Count + '</p>' +
+        (item.headers.length ? '<div class="tablewrap"><table><tbody>' + item.headers.map(cell => '<tr><th>' + esc(cell.col) + '</th><td>' + esc(cell.value) + '</td></tr>').join('') + '</tbody></table></div>' : '<p>No non-empty cells in rows 1–2.</p>') +
+        '</section>';
+      if (root) root.innerHTML = '<div class="notice good">Batch mapping complete: inspected rows 1–2 of ' + report.length + ' tabs using one read-only API request. No study records were read, imported, or changed. Header rows are candidates and will be validated before syncing.</div>' +
+        '<h3>Core study and dashboard tabs (' + key.length + ')</h3>' + key.map(render).join('') +
+        '<details><summary>Other workbook tabs (' + other.length + ')</summary>' + other.map(render).join('') + '</details>';
+      status('Workbook header map generated in one batch. No records were imported or changed.', 'good');
     } catch (e) {
       status(e.message || String(e), 'error');
-    } finally {
-      busy = false; controls();
-    }
+    } finally { busy = false; controls(); }
   }
   function disconnect() {
     window.MBBSGoogleSheets?.disconnect();

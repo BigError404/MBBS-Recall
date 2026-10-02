@@ -96,11 +96,22 @@
     };
   }
 
+  async function readRanges(spreadsheetId, ranges) {
+    if (!/^[a-zA-Z0-9_-]{20,}$/.test(spreadsheetId || '')) throw new Error('Enter a valid spreadsheet ID.');
+    if (!Array.isArray(ranges) || ranges.length < 1 || ranges.length > 100 ||
+        ranges.some(r => typeof r !== 'string' || !r.trim() || r.length > 300)) {
+      throw new Error('Provide between 1 and 100 explicit spreadsheet ranges.');
+    }
+    const params = new URLSearchParams({ valueRenderOption: 'FORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' });
+    ranges.forEach(range => params.append('ranges', range));
+    return api('https://sheets.googleapis.com/v4/spreadsheets/' + encodeURIComponent(spreadsheetId) +
+      '/values:batchGet?' + params.toString());
+  }
+
   async function readRange(spreadsheetId, range) {
     if (!range || typeof range !== 'string') throw new Error('Provide an explicit sheet range, e.g. Master Entry!A1:Z20.');
-    const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + encodeURIComponent(spreadsheetId) +
-      '/values/' + encodeURIComponent(range) + '?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING';
-    return api(url);
+    const data = await readRanges(spreadsheetId, [range]);
+    return { range: data.valueRanges?.[0]?.range || range, values: data.valueRanges?.[0]?.values || [] };
   }
 
   function disconnect() {
@@ -112,7 +123,7 @@
   }
 
   window.MBBSGoogleSheets = Object.freeze({
-    connect, disconnect, getSpreadsheet, readRange,
+    connect, disconnect, getSpreadsheet, readRange, readRanges,
     isConnected: () => Boolean(accessToken),
     scope: SHEETS_SCOPE
   });
