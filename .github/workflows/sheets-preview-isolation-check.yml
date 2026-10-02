@@ -1,0 +1,55 @@
+name: Sheets preview isolation checks
+
+on:
+  push:
+    branches:
+      - sheets-preview-publish
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'preview/**'
+      - '.github/workflows/sheets-preview-isolation-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preview-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate preview JavaScript
+        run: |
+          node --check preview/app.js
+          node --check preview/engine.js
+          node --check preview/workbook-seed.js
+          node --check preview/xlsx-import.js
+          node --check preview/google-sheets-readonly.js
+          node --check preview/google-sheets-ui.js
+          node --check preview/sw.js
+      - name: Verify preview is isolated and read-only
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const app = fs.readFileSync('preview/app.js', 'utf8');
+          const html = fs.readFileSync('preview/index.html', 'utf8');
+          const sw = fs.readFileSync('preview/sw.js', 'utf8');
+          const api = fs.readFileSync('preview/google-sheets-readonly.js', 'utf8');
+          const manifest = JSON.parse(fs.readFileSync('preview/manifest.json', 'utf8'));
+
+          assert.match(app, /mbbs-recall-sheets-preview-v1/, 'Preview must use a separate IndexedDB/localStorage key');
+          assert.doesNotMatch(app, /mbbs-recall-pro-v5/, 'Preview must not use production local storage keys');
+          assert.match(html, /PREVIEW ONLY/, 'Visible preview warning must be present');
+          assert.match(sw, /mbbs-recall-sheets-preview-v1/, 'Preview must use a separate cache');
+          assert.match(sw, /k\.startsWith\(CACHE_PREFIX\)/, 'Preview cleanup must only remove preview caches');
+          assert.match(api, /spreadsheets\.readonly/, 'OAuth scope must remain read-only');
+          assert.doesNotMatch(api, /spreadsheets\.values\.(?:update|append|clear)|batchUpdate/, 'No write endpoint allowed');
+          assert.equal(manifest.scope, './');
+          assert.equal(manifest.start_url, './index.html');
+          console.log('PASS: preview database, cache, warning banner, manifest scope, and read-only API are isolated.');
+          NODE
