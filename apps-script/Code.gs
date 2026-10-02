@@ -93,13 +93,15 @@ function archiveRecord(input) {
     }
     if (!current.some(v => String(v).trim())) throw new Error('This row is already empty.');
     let archive = ss.getSheetByName(CFG.ARCHIVE);
-    if (!archive) {
-      archive = ss.insertSheet(CFG.ARCHIVE);
-      archive.getRange(1, 1, 1, 13).setValues([['Archived At','Original Sheet','Original Row','IMP ID','Entry Date','Subject','Unit','Question','Answer Key Points','Source','Notes','Priority','Archive Status']]);
-      archive.hideSheet();
-    }
+    if (!archive) archive = ss.insertSheet(CFG.ARCHIVE);
+    ensureArchiveLayout_(archive);
     const rawCurrent = sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).getValues()[0];
-    archive.appendRow([new Date(), CFG.MASTER, row, ...rawCurrent]);
+    const archiveRow = Math.max(2, archive.getLastRow() + 1);
+    // Write and verify the recoverable copy before clearing the live row.
+    archive.getRange(archiveRow, 1, 1, 12).setValues([[new Date(), CFG.MASTER, row, ...rawCurrent]]);
+    SpreadsheetApp.flush();
+    const verified = archive.getRange(archiveRow, 4, 1, CFG.MASTER_INPUT_COLS).getValues()[0];
+    if (String(verified[0]) !== String(rawCurrent[0])) throw new Error('Archive copy verification failed. The Master Entry row was left untouched.');
     // Clear only user-input columns A:I. Never delete the row or touch formula columns J:AC.
     sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).clearContent();
     SpreadsheetApp.flush();
@@ -129,8 +131,10 @@ function restoreArchived(input) {
     const master = requireSheet_(ss, CFG.MASTER);
     const ar = Number(input && input.archiveRow);
     if (!archive || !Number.isInteger(ar) || ar < 2 || ar > archive.getLastRow()) throw new Error('Invalid archive row.');
-    const saved = archive.getRange(ar, 1, 1, 12).getValues()[0];
+    ensureArchiveLayout_(archive);
+    const saved = archive.getRange(ar, 1, 1, 13).getValues()[0];
     if (String(saved[3]) !== String(input.id)) throw new Error('Archive entry changed. Refresh the archive list.');
+    if (String(saved[12] || '').startsWith('RESTORED ')) throw new Error('This archive entry is already marked restored. Reload the archive list.');
     const original = saved.slice(3,12);
     if (!original[0]) throw new Error('Archive entry has no IMP ID.');
     const last = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
@@ -142,9 +146,13 @@ function restoreArchived(input) {
       master.getRange(originalRow,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0].every(v=>!String(v).trim())
       ? originalRow : Math.max(CFG.MASTER_FIRST_ROW,last+1);
     master.getRange(target,1,1,CFG.MASTER_INPUT_COLS).setValues([original]);
+    SpreadsheetApp.flush();
+    const restoredCheck = master.getRange(target,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0];
+    if (String(restoredCheck[0]) !== String(original[0])) throw new Error('Restore verification failed. The archive copy was retained; check Master Entry before retrying.');
+    // Mark only after the restored row has been verified. Ensure column M exists first.
     archive.getRange(ar,13).setValue('RESTORED '+new Date().toISOString());
     SpreadsheetApp.flush();
-    return {ok:true,id:original[0],row:target,message:'Archived IMP restored to Master Entry. Formula columns were not written.'};
+    return {ok:true,id:original[0],row:target,message:'Restored and verified in Master Entry. Archive copy retained; formula columns were not written.'};
   });
 }
 
@@ -205,11 +213,26 @@ function nextId_(sh) {
   return (ids.length?Math.max(...ids):0)+1;
 }
 function lastDataRow_(sh, firstRow, col) {
-  const last=sh.getLastRow();
-  if(last<firstRow)return firstRow-1;
-  const vals=sh.getRange(firstRow,col,last-firstRow+1,1).getDisplayValues();
-  for(let i=vals.length-1;i>=0;i--)if(String(vals[i][0]).trim()!=='')return firstRow+i;
-  return firstRow-1;
+  // Scan backwards in small blocks: the workbook pre-fills thousands of formula rows,
+  // so reading the entire 10,000-row Revision Log on every request is needlessly slow.
+  const last = sh.getLastRow();
+  if (last < firstRow) return firstRow - 1;
+  const blockSize = 250;
+  for (let end = last; end >= firstRow; end -= blockSize) {
+    const start = Math.max(firstRow, end - blockSize + 1);
+    const vals = sh.getRange(start, col, end - start + 1, 1).getDisplayValues();
+    for (let i = vals.length - 1; i >= 0; i--) {
+      if (String(vals[i][0]).trim() !== '') return start + i;
+    }
+  }
+  return firstRow - 1;
+}
+function ensureArchiveLayout_(sh) {
+  // Older archive tabs may have only A:L. Restore status uses column M.
+  if (sh.getMaxColumns() < 13) sh.insertColumnsAfter(sh.getMaxColumns(), 13 - sh.getMaxColumns());
+  const headers = ['Archived At','Original Sheet','Original Row','IMP ID','Entry Date','Subject','Unit','Question','Answer Key Points','Source','Notes','Priority','Archive Status'];
+  const current = sh.getRange(1, 1, 1, 13).getDisplayValues()[0];
+  if (current.every(v => !String(v).trim())) sh.getRange(1, 1, 1, 13).setValues([headers]);
 }
 function dateValue_(input, existingRaw, existingDisplay) {
   const value = String(input || '').trim();
