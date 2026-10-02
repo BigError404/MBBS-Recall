@@ -15,7 +15,7 @@ This is a separate, server-side Google Apps Script web app. It avoids the GitHub
 - Master Entry writes are restricted to A:I; formula/calculated columns J:AC are never written.
 - Revision Log writes are restricted to A:D; formula columns E:K are never written.
 - Edits compare the original A:I snapshot before saving; concurrent changes cause a conflict error rather than overwrite.
-- Archive copies the record to a hidden `_MBBS Recall Archive` tab and clears only A:I; it does not delete a row or touch J:AC.
+- Archive copies the full nine input fields to a hidden `_MBBS Recall Archive` tab and clears only A:I; it does not delete a row or touch J:AC. A Restore control can put the record back (original row if still empty, otherwise the next available row); it refuses to duplicate an existing ID.
 - A document lock serializes writes. Inputs are validated. IDs are generated from existing numeric IDs.
 - The first version does not bulk import/export, sync the PWA local database, or delete revisions.
 
