@@ -33,7 +33,7 @@ function getBootstrap() {
 }
 
 function listRecords(limit) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sh = requireSheet_(ss, CFG.MASTER);
   const last = lastDataRow_(sh, CFG.MASTER_FIRST_ROW, 1);
   if (last < CFG.MASTER_FIRST_ROW) return [];
@@ -46,7 +46,7 @@ function listRecords(limit) {
 
 function addRecord(input) {
   return withLock_(() => {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sh = requireSheet_(ss, CFG.MASTER);
     const data = validateRecord_(input);
     const last = lastDataRow_(sh, CFG.MASTER_FIRST_ROW, 1);
@@ -61,7 +61,7 @@ function addRecord(input) {
 
 function editRecord(input) {
   return withLock_(() => {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sh = requireSheet_(ss, CFG.MASTER);
     const row = Number(input && input.row);
     if (!Number.isInteger(row) || row < CFG.MASTER_FIRST_ROW || row > sh.getMaxRows()) throw new Error('Invalid source row.');
@@ -81,7 +81,7 @@ function editRecord(input) {
 
 function archiveRecord(input) {
   return withLock_(() => {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sh = requireSheet_(ss, CFG.MASTER);
     const row = Number(input && input.row);
     if (!Number.isInteger(row) || row < CFG.MASTER_FIRST_ROW || row > sh.getMaxRows()) throw new Error('Invalid source row.');
@@ -150,7 +150,7 @@ function restoreArchived(input) {
 
 function addRevision(input) {
   return withLock_(() => {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const rev = requireSheet_(ss, CFG.REVISION);
     const id = String(input && input.id || '').trim();
     const result = String(input && input.result || '').trim().toUpperCase();
@@ -169,7 +169,7 @@ function addRevision(input) {
 }
 
 function getRecentRevisions(limit) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sh = requireSheet_(ss, CFG.REVISION);
   const last = lastDataRow_(sh, CFG.REVISION_FIRST_ROW, 1);
   if (last < CFG.REVISION_FIRST_ROW) return [];
