@@ -1,0 +1,48 @@
+name: Apps Script backend safety checks
+on:
+  pull_request:
+    paths:
+      - 'apps-script/**'
+      - '.github/workflows/apps-script-check.yml'
+  push:
+    branches: [apps-script-safe-write-layer]
+    paths:
+      - 'apps-script/**'
+      - '.github/workflows/apps-script-check.yml'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check embedded browser JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('apps-script/Index.html').read_text()
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          assert scripts, 'No inline client script found'
+          Path('/tmp/index-client.js').write_text('\n'.join(scripts))
+          PY
+          node --check /tmp/index-client.js
+      - name: Check Apps Script safety contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('apps-script/Code.gs').read_text()
+          checks={
+            'master inputs limited to A:I':'MASTER_INPUT_COLS: 9' in s,
+            'revision inputs limited to A:D':'REVISION_INPUT_COLS: 4' in s,
+            'optimistic edit conflict check':'expectedSnapshot' in s,
+            'recoverable archive':'appendRow([' in s and "CFG.ARCHIVE" in s,
+            'document lock':'LockService.getDocumentLock()' in s,
+            'revision result validation':"['PASS','FAIL','PARTIAL']" in s,
+            'no external web endpoint':'UrlFetchApp.fetch' not in s,
+            'no API/client secret embedded':'client_secret' not in s.lower(),
+          }
+          for k,v in checks.items(): print(('PASS' if v else 'FAIL')+' '+k)
+          assert all(checks.values())
+          PY
