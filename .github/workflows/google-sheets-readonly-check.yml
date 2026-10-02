@@ -1,0 +1,61 @@
+name: Google Sheets read-only safety checks
+
+on:
+  push:
+    branches:
+      - sheets-sync-safe
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'google-sheets-*.js'
+      - 'index.html'
+      - 'sw.js'
+      - '.github/workflows/google-sheets-readonly-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out test branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate JavaScript syntax
+        run: |
+          node --check app.js
+          node --check engine.js
+          node --check google-sheets-readonly.js
+          node --check google-sheets-ui.js
+      - name: Enforce read-only integration contract
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const api = fs.readFileSync('google-sheets-readonly.js', 'utf8');
+          const ui = fs.readFileSync('google-sheets-ui.js', 'utf8');
+          const html = fs.readFileSync('index.html', 'utf8');
+          const sw = fs.readFileSync('sw.js', 'utf8');
+
+          assert.match(api, /https:\/\/www\.googleapis\.com\/auth\/spreadsheets\.readonly/,
+            'OAuth scope must remain read-only');
+          assert.doesNotMatch(api, /spreadsheets\.values\.(?:update|append|clear)|:batchUpdate|batchUpdate/,
+            'No Sheets write endpoints are allowed in this stage');
+          assert.doesNotMatch(api, /localStorage|sessionStorage|indexedDB/,
+            'The OAuth helper must not persist tokens or credentials');
+          assert.match(ui, /Check workbook tabs/, 'Metadata inspection UI must exist');
+          assert.match(ui, /getSpreadsheet\(/, 'UI must use metadata-only spreadsheet inspection');
+          assert.doesNotMatch(ui, /readRange\(/, 'The first-stage UI must not read study rows');
+          assert.ok(html.indexOf('google-sheets-readonly.js') < html.indexOf('app.js'),
+            'Read-only helper must load before app.js');
+          assert.ok(html.indexOf('google-sheets-ui.js') > html.indexOf('app.js'),
+            'Settings UI must load after app.js');
+          assert.match(sw, /google-sheets-readonly\.js/);
+          assert.match(sw, /google-sheets-ui\.js/);
+          console.log('PASS: syntax valid; read-only scope, no token persistence, metadata-only UI, script order, and offline asset entries verified.');
+          NODE
