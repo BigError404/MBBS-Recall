@@ -126,11 +126,17 @@
       });
       const key = report.filter(x => x.isDataTab);
       const other = report.filter(x => !x.isDataTab);
-      const render = item => '<section class="panel"><h3>' + esc(item.title) + ' — candidate header row ' + item.row + '</h3>' +
-        '<p class="footnote">Non-empty cells: row 1 = ' + item.row1Count + ', row 2 = ' + item.row2Count + '</p>' +
-        (item.headers.length ? '<div class="tablewrap"><table><tbody>' + item.headers.map(cell => '<tr><th>' + esc(cell.col) + '</th><td>' + esc(cell.value) + '</td></tr>').join('') + '</tbody></table></div>' : '<p>No non-empty cells in rows 1–2.</p>') +
+      // Mobile-first compact layout: never put one-character-wide table cells on screen.
+      const render = item => '<section class="panel" style="margin:10px 0;padding:12px">' +
+        '<h3 style="margin:0 0 6px;font-size:1rem">' + esc(item.title) + '</h3>' +
+        '<p class="footnote" style="margin:0 0 8px">Candidate headers: row ' + item.row +
+        ' · filled cells: row 1=' + item.row1Count + ', row 2=' + item.row2Count + '</p>' +
+        (item.headers.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+          item.headers.map(cell => '<span style="display:inline-block;max-width:100%;padding:6px 9px;border:1px solid var(--line,#d5dde5);border-radius:8px;overflow-wrap:anywhere;background:var(--surface,#fff)"><strong>' +
+          esc(cell.col) + '</strong> — ' + esc(cell.value) + '</span>').join('') +
+          '</div>' : '<p>No non-empty cells in rows 1–2.</p>') +
         '</section>';
-      if (root) root.innerHTML = '<div class="notice good">Batch mapping complete: inspected rows 1–2 of ' + report.length + ' tabs using one read-only API request. No study records were read, imported, or changed. Header rows are candidates and will be validated before syncing.</div>' +
+      if (root) root.innerHTML = '<div class="notice good">Header check complete: rows 1–2 inspected across ' + report.length + ' tabs in one read-only batch. Results are displayed as compact mobile-friendly labels. No study records were read, imported, or changed.</div>' +
         '<h3>Core study and dashboard tabs (' + key.length + ')</h3>' + key.map(render).join('') +
         '<details><summary>Other workbook tabs (' + other.length + ')</summary>' + other.map(render).join('') + '</details>';
       status('Workbook header map generated in one batch. No records were imported or changed.', 'good');
