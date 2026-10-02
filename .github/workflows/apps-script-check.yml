@@ -38,7 +38,7 @@ jobs:
             'revision inputs limited to A:D':'REVISION_INPUT_COLS: 4' in s,
             'optimistic edit conflict check':'expectedSnapshot' in s,
             'recoverable archive':'appendRow([' in s and "CFG.ARCHIVE" in s,
-            'document lock':'LockService.getDocumentLock()' in s,
+            'script lock':'LockService.getScriptLock()' in s,
             'revision result validation':"['PASS','FAIL','PARTIAL']" in s,
             'no external web endpoint':'UrlFetchApp.fetch' not in s,
             'no API/client secret embedded':'client_secret' not in s.lower(),
