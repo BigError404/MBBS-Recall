@@ -1,0 +1,25 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+const tests = [];
+function test(name, fn) { try { fn(); tests.push({name, pass:true}); } catch (e) { tests.push({name, pass:false, error:e.message}); } }
+test('Existing v5 IndexedDB name is retained for upgrade continuity', () => assert.match(app, /indexedDB\.open\('mbbs-recall-pro-v5',1\)/));
+test('Existing v5 localStorage fallback key is retained', () => assert.match(app, /localStorage\.getItem\('mbbs-recall-pro-v5'\)/));
+test('Service worker cache is bumped to v7 and caches the offline XLSX importer', () => { assert.match(sw, /mbbs-recall-pro-v7\.0/); assert.match(sw, /xlsx-import\.js/); });
+test('All core app scripts are local files (offline-friendly)', () => { for (const file of ['engine.js','workbook-seed.js','xlsx-import.js','app.js']) assert.match(html, new RegExp(`src="\\./${file}"`)); assert.doesNotMatch(html, /https?:\/\/.*(?:script|stylesheet)/i); });
+test('Bulk selection supports individual, visible, and filtered records', () => { assert.match(app, /data-select-id/); assert.match(app, /select-visible/); assert.match(app, /select-matching/); });
+test('Bulk deletion confirms and removes linked review rows', () => { assert.match(app, /Delete \$\{targets\.length\} selected IMPs and \$\{revCount\} linked revision rows/); assert.match(app, /next\.revisions=next\.revisions\.filter\(r=>!ids\.has\(Number\(r\.impId\)\)\)/); assert.match(app, /function deleteSelectedCards\(\)/); });
+test('Bulk deletion is wired to the existing undo snapshot', () => { assert.match(app, /case'delete-selected':deleteSelectedCards\(\)/); assert.match(app, /destructiveSnapshot\(\);const next=clone\(state\);next\.master=next\.master\.filter/); });
+test('Sort options include due date, priority, and weak topics', () => { for (const value of ['id-asc','id-desc','subject','due','priority','weak']) assert.ok(app.includes(value)); });
+test('Master Entry exposes workbook helper columns and XLSX import', () => { assert.match(app, /Full workbook-style view/); assert.match(app, /Last Revised/); assert.match(app, /Data Quality/); assert.match(app, /importWorkbookXLSX/); });
+test('CSV export includes workbook helper/calculated columns', () => { assert.match(app, /TotalAttempts/); assert.match(app, /DataQuality/); assert.match(app, /Full Master Entry CSV exported/); });
+test('Manifest launches as a standalone PWA', () => { assert.equal(manifest.display,'standalone'); assert.equal(manifest.start_url,'./index.html'); });
+const failed = tests.filter(t=>!t.pass);
+console.log(JSON.stringify({testCount:tests.length,passed:tests.length-failed.length,failed:failed.length,tests},null,2));
+if (failed.length) process.exitCode = 1;
