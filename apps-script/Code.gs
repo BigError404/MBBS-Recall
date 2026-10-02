@@ -95,7 +95,7 @@ function archiveRecord(input) {
     let archive = ss.getSheetByName(CFG.ARCHIVE);
     if (!archive) {
       archive = ss.insertSheet(CFG.ARCHIVE);
-      archive.getRange(1, 1, 1, 12).setValues([['Archived At','Original Sheet','Original Row','IMP ID','Entry Date','Subject','Unit','Question','Answer Key Points','Source','Notes','Priority']]);
+      archive.getRange(1, 1, 1, 13).setValues([['Archived At','Original Sheet','Original Row','IMP ID','Entry Date','Subject','Unit','Question','Answer Key Points','Source','Notes','Priority','Archive Status']]);
       archive.hideSheet();
     }
     const rawCurrent = sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).getValues()[0];
@@ -191,8 +191,15 @@ function validateRecord_(x) {
 }
 function nextId_(sh) {
   const last=lastDataRow_(sh,CFG.MASTER_FIRST_ROW,1);
-  if(last<CFG.MASTER_FIRST_ROW)return 1;
-  const ids=sh.getRange(CFG.MASTER_FIRST_ROW,1,last-CFG.MASTER_FIRST_ROW+1,1).getDisplayValues().flat().map(v=>Number(v)).filter(n=>Number.isSafeInteger(n)&&n>0);
+  const ids=last>=CFG.MASTER_FIRST_ROW
+    ? sh.getRange(CFG.MASTER_FIRST_ROW,1,last-CFG.MASTER_FIRST_ROW+1,1).getDisplayValues().flat().map(Number).filter(n=>Number.isSafeInteger(n)&&n>0)
+    : [];
+  // Include archived IDs so archiving the highest ID can never cause ID reuse.
+  const archive=SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(CFG.ARCHIVE);
+  if(archive && archive.getLastRow()>=2) {
+    const archived=archive.getRange(2,4,archive.getLastRow()-1,1).getDisplayValues().flat().map(Number).filter(n=>Number.isSafeInteger(n)&&n>0);
+    ids.push(...archived);
+  }
   return (ids.length?Math.max(...ids):0)+1;
 }
 function lastDataRow_(sh, firstRow, col) {
