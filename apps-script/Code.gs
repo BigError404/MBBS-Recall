@@ -4,6 +4,7 @@
  * Master Entry: row 2 headers, data starts row 3, A:AC (29 columns).
  * Revision Log: row 1 headers, data starts row 2, A:K (11 columns).
  */
+const SPREADSHEET_ID = '1wSA5eYsTYCZE-q2CdGOiQshrr-bdTE-63Lo_iw3lBLE';
 const CFG = Object.freeze({
   MASTER: 'Master Entry', MASTER_HEADER_ROW: 2, MASTER_FIRST_ROW: 3, MASTER_INPUT_COLS: 9,
   REVISION: 'Revision Log', REVISION_HEADER_ROW: 1, REVISION_FIRST_ROW: 2, REVISION_INPUT_COLS: 4,
@@ -17,7 +18,7 @@ function doGet() {
 }
 
 function getBootstrap() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   if (!ss) throw new Error('Bind this Apps Script project to the MBBS Recall Google Sheet.');
   const master = requireSheet_(ss, CFG.MASTER);
   const revision = requireSheet_(ss, CFG.REVISION);
@@ -51,7 +52,7 @@ function addRecord(input) {
     const last = lastDataRow_(sh, CFG.MASTER_FIRST_ROW, 1);
     const row = Math.max(CFG.MASTER_FIRST_ROW, last + 1);
     const id = nextId_(sh);
-    const values = [[id, data.entryDate || new Date(), data.subject, data.unit, data.question, data.answer, data.source, data.notes, data.priority]];
+    const values = [[id, dateValue_(data.entryDate, null, ''), data.subject, data.unit, data.question, data.answer, data.source, data.notes, data.priority]];
     sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).setValues(values);
     SpreadsheetApp.flush();
     return {ok: true, id, row, message: 'IMP saved to Master Entry. Calculated columns were not written.'};
@@ -71,7 +72,7 @@ function editRecord(input) {
       throw new Error('Conflict: this IMP changed since it was opened. Reload the record; no changes were saved.');
     }
     const data = validateRecord_(input.record);
-    const values = [[current[0], data.entryDate || current[1], data.subject, data.unit, data.question, data.answer, data.source, data.notes, data.priority]];
+    const values = [[current[0], dateValue_(data.entryDate, sh.getRange(row, 2).getValue(), current[1]), data.subject, data.unit, data.question, data.answer, data.source, data.notes, data.priority]];
     sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).setValues(values);
     SpreadsheetApp.flush();
     return {ok: true, id: current[0], row, message: 'IMP updated. ID and calculated columns were preserved.'};
@@ -159,5 +160,16 @@ function lastDataRow_(sh, firstRow, col) {
   for(let i=vals.length-1;i>=0;i--)if(String(vals[i][0]).trim()!=='')return firstRow+i;
   return firstRow-1;
 }
+function dateValue_(input, existingRaw, existingDisplay) {
+  const value = String(input || '').trim();
+  if (!value) return existingRaw || new Date();
+  if (existingDisplay && value === String(existingDisplay)) return existingRaw;
+  // Native date input uses yyyy-mm-dd; parse locally to avoid timezone date shifts.
+  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
+  if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 12, 0, 0);
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  throw new Error('Entry Date must be a valid date.');
+}
 function requireSheet_(ss,name){if(!ss)throw new Error('Spreadsheet context unavailable.');const sh=ss.getSheetByName(name);if(!sh)throw new Error('Required tab not found: '+name);return sh;}
-function withLock_(fn){const lock=LockService.getDocumentLock();if(!lock.tryLock(CFG.LOCK_MS))throw new Error('Another save is in progress. Wait a moment and retry.');try{return fn();}finally{lock.releaseLock();}}
+function withLock_(fn){const lock=LockService.getScriptLock();if(!lock.tryLock(CFG.LOCK_MS))throw new Error('Another save is in progress. Wait a moment and retry.');try{return fn();}finally{lock.releaseLock();}}
