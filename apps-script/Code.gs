@@ -98,7 +98,8 @@ function archiveRecord(input) {
       archive.getRange(1, 1, 1, 12).setValues([['Archived At','Original Sheet','Original Row','IMP ID','Entry Date','Subject','Unit','Question','Answer Key Points','Source','Notes','Priority']]);
       archive.hideSheet();
     }
-    archive.appendRow([new Date(), CFG.MASTER, row, ...current]);
+    const rawCurrent = sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).getValues()[0];
+    archive.appendRow([new Date(), CFG.MASTER, row, ...rawCurrent]);
     // Clear only user-input columns A:I. Never delete the row or touch formula columns J:AC.
     sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).clearContent();
     SpreadsheetApp.flush();
@@ -128,7 +129,7 @@ function restoreArchived(input) {
     const master = requireSheet_(ss, CFG.MASTER);
     const ar = Number(input && input.archiveRow);
     if (!archive || !Number.isInteger(ar) || ar < 2 || ar > archive.getLastRow()) throw new Error('Invalid archive row.');
-    const saved = archive.getRange(ar, 1, 1, 12).getDisplayValues()[0];
+    const saved = archive.getRange(ar, 1, 1, 12).getValues()[0];
     if (String(saved[3]) !== String(input.id)) throw new Error('Archive entry changed. Refresh the archive list.');
     const original = saved.slice(3,12);
     if (!original[0]) throw new Error('Archive entry has no IMP ID.');
