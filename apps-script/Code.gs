@@ -214,7 +214,7 @@ function dateValue_(input, existingRaw, existingDisplay) {
   if (!value) return existingRaw || new Date();
   if (existingDisplay && value === String(existingDisplay)) return existingRaw;
   // Native date input uses yyyy-mm-dd; parse locally to avoid timezone date shifts.
-  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 12, 0, 0);
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) return parsed;
