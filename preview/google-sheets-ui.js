@@ -30,6 +30,8 @@
         <button class="btn" id="gsDisconnect" type="button" disabled>Disconnect</button>
       </div>
       <div id="gsStatus" class="notice" role="status">Not connected. Connect while online; Google may ask you to approve read-only access.</div>
+      <div class="toolbar" style="margin-top:10px"><button class="btn" id="gsHeaders" type="button" disabled>Inspect key sheet headers (read-only)</button></div>
+      <div id="gsHeaderResults"></div>
       <div id="gsSheetList"></div>
       <p class="footnote">The connection requests read-only spreadsheet access. If Google shows an OAuth test-user warning, confirm you added the Google account that owns the spreadsheet as a test user in the same Cloud project.</p>`;
     const danger = Array.from(settings.querySelectorAll('h2')).find(h => h.textContent.includes('Danger zone'));
@@ -37,6 +39,7 @@
     section.querySelector('#gsConnect').addEventListener('click', connect);
     section.querySelector('#gsInspect').addEventListener('click', inspect);
     section.querySelector('#gsDisconnect').addEventListener('click', disconnect);
+    section.querySelector('#gsHeaders').addEventListener('click', inspectHeaders);
   }
   function status(message, type='') {
     const el = document.querySelector('#gsStatus');
@@ -48,10 +51,11 @@
   }
   function controls() {
     const connected = Boolean(window.MBBSGoogleSheets?.isConnected());
-    const connect = document.querySelector('#gsConnect'), inspect = document.querySelector('#gsInspect'), disconnectBtn = document.querySelector('#gsDisconnect');
+    const connect = document.querySelector('#gsConnect'), inspect = document.querySelector('#gsInspect'), disconnectBtn = document.querySelector('#gsDisconnect'), headersBtn = document.querySelector('#gsHeaders');
     if (connect) { connect.disabled = busy; connect.textContent = connected ? 'Reconnect Google account' : 'Connect Google account'; }
     if (inspect) inspect.disabled = busy || !connected;
     if (disconnectBtn) disconnectBtn.disabled = busy || !connected;
+    if (headersBtn) headersBtn.disabled = busy || !connected;
   }
   async function connect() {
     if (busy) return;
@@ -77,6 +81,36 @@
       status('Workbook metadata loaded successfully. Still read-only; local data is untouched.', 'good');
     } catch (e) { status(e.message || String(e), 'error'); }
     finally { busy = false; controls(); }
+  }
+
+  async function inspectHeaders() {
+    if (busy) return;
+    inputs();
+    busy = true; controls();
+    status('Reading row 1 only from selected workbook tabs…');
+    const targets = ['Master Entry', 'Revision Log', 'TODAY DUE', 'THIS WEEK', 'Data Health'];
+    const root = document.querySelector('#gsHeaderResults');
+    try {
+      const results = [];
+      for (const title of targets) {
+        try {
+          const data = await window.MBBSGoogleSheets.readRange(cfg.spreadsheetId, "'" + title.replace(/'/g, "''") + "'!1:1");
+          results.push({ title, headers: (data.values && data.values[0]) || [], error: '' });
+        } catch (e) {
+          results.push({ title, headers: [], error: e.message || String(e) });
+        }
+      }
+      if (root) root.innerHTML = '<div class="notice good">Header inspection complete. Only row 1 was requested; no study records were read, imported, or changed.</div>' +
+        results.map(r => '<section class="panel"><h3>' + esc(r.title) + '</h3>' +
+          (r.error ? '<p class="notice warn">' + esc(r.error) + '</p>' :
+            (r.headers.length ? '<div class="tablewrap"><table><tbody>' + r.headers.map((h, i) => '<tr><th>' + (i + 1) + '</th><td>' + esc(h) + '</td></tr>').join('') + '</tbody></table></div>' : '<p>No non-empty header cells returned.</p>')) +
+          '</section>').join('');
+      status('Header-only check finished. Review the displayed column names before any data mapping.', 'good');
+    } catch (e) {
+      status(e.message || String(e), 'error');
+    } finally {
+      busy = false; controls();
+    }
   }
   function disconnect() {
     window.MBBSGoogleSheets?.disconnect();
