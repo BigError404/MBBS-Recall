@@ -113,12 +113,12 @@ function listArchive(limit) {
   if (!sh || sh.getLastRow() < 2) return [];
   const cap = Math.max(1, Math.min(Number(limit) || 50, 200));
   const last = sh.getLastRow(), start = Math.max(2, last - cap + 1);
-  return sh.getRange(start, 1, last - start + 1, 12).getDisplayValues().map((r,i)=>({
+  return sh.getRange(start, 1, last - start + 1, 13).getDisplayValues().map((r,i)=>({
     archiveRow:start+i, archivedAt:r[0], originalSheet:r[1], originalRow:r[2],
     id:r[3], entryDate:r[4], subject:r[5], unit:r[6], question:r[7],
     answer:r[8], source:r[9], notes:r[10], priority:r[11],
-    snapshot:r.slice(3,12)
-  })).reverse();
+    snapshot:r.slice(3,12), archiveStatus:r[12] || ''
+  })).filter(r=>!r.archiveStatus).reverse();
 }
 
 function restoreArchived(input) {
