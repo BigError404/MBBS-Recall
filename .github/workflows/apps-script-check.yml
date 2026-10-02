@@ -37,7 +37,7 @@ jobs:
             'master inputs limited to A:I':'MASTER_INPUT_COLS: 9' in s,
             'revision inputs limited to A:D':'REVISION_INPUT_COLS: 4' in s,
             'optimistic edit conflict check':'expectedSnapshot' in s,
-            'recoverable archive':'appendRow([' in s and "CFG.ARCHIVE" in s,
+            'recoverable archive':'appendRow([' in s and "CFG.ARCHIVE" in s,\n            'archive restore path':'function restoreArchived(input)' in s,\n            'archive preserves all nine fields':'...rawCurrent' in s,\n            'archived IDs cannot be reused':'Include archived IDs' in s,\n            'date preservation helper':'function dateValue_(' in s,
             'script lock':'LockService.getScriptLock()' in s,
             'revision result validation':"['PASS','FAIL','PARTIAL']" in s,
             'no external web endpoint':'UrlFetchApp.fetch' not in s,
