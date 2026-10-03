@@ -16,7 +16,7 @@ function doGet(e) {
     return HtmlService.createHtmlOutputFromFile('Bridge')
       .setTitle('MBBS Recall Pro — Secure Sheets Bridge')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('MBBS Recall Pro — Sheet Manager')
