@@ -1,7 +1,0 @@
-{
-  "suite": "Offline XLSX importer synthetic fixture",
-  "assertions": 12,
-  "passed": 12,
-  "failed": 0,
-  "separateBuildVerification": "The supplied MBBS_SRS_GOOGLE_SHEETS_ANDROID_FIXED_v11_FINAL.xlsx parsed as 1 IMP, 1 revision, 12 subjects, and 97 units."
-}
