@@ -317,7 +317,10 @@ function syncApplyChanges(plan) {
       const date = String(r.logDate || '').trim(), resultInput = String(r.result || '').trim().toLowerCase();
       const resultMap = {pass:'Pass',fail:'Fail',partial:'Partial'};
       const result = resultMap[resultInput] || '';
-      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !result) throw new Error('Sync revision has an invalid date or result.');
+      const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+      const parsedDay = dm ? new Date(Number(dm[1]),Number(dm[2])-1,Number(dm[3]),12,0,0) : null;
+      if (!dm || !parsedDay || parsedDay.getFullYear()!==Number(dm[1]) || parsedDay.getMonth()!==Number(dm[2])-1 ||
+          parsedDay.getDate()!==Number(dm[3]) || !result) throw new Error('Sync revision has an invalid calendar date or result.');
       const impClientKey = String(r.impClientKey || '').trim();
       const impId = String(r.impId || '').trim();
       if (!impId && (!impClientKey || !addKeys.has(impClientKey))) throw new Error('Sync revision refers to an unknown IMP.');
@@ -328,6 +331,19 @@ function syncApplyChanges(plan) {
     if (masterLast >= CFG.MASTER_FIRST_ROW) master.getRange(CFG.MASTER_FIRST_ROW,1,masterLast-CFG.MASTER_FIRST_ROW+1,1).getDisplayValues().flat().forEach(v=>{if(v)activeIds.add(String(v));});
     preparedAdds.forEach(a => {
       if (a.existingId && !activeIds.has(String(a.existingId))) throw new Error('A previous sync add is recorded but its IMP is missing from Master Entry. Resolve the archive before retrying.');
+      if (a.existingId) {
+        const idValues = master.getRange(CFG.MASTER_FIRST_ROW,1,Math.max(0,masterLast-CFG.MASTER_FIRST_ROW+1),1).getDisplayValues().flat();
+        const idx = idValues.findIndex(v=>String(v)===String(a.existingId));
+        if (idx < 0) throw new Error('A previous sync add could not be located. Refresh the snapshot before retrying.');
+        const row = CFG.MASTER_FIRST_ROW+idx;
+        const raw = master.getRange(row,1,1,CFG.MASTER_INPUT_COLS).getValues()[0];
+        const shown = master.getRange(row,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0];
+        const d = a.record;
+        if (isoDate_(raw[1],shown[1]) !== d.entryDate || shown[2] !== d.subject || shown[3] !== d.unit ||
+            shown[4] !== d.question || shown[5] !== d.answer || shown[6] !== d.source || shown[7] !== d.notes || shown[8] !== d.priority) {
+          throw new Error('A previously started sync add now has different content. Refresh the Sheet and resolve the IMP before retrying; no duplicate was created.');
+        }
+      }
     });
     preparedUpdates.forEach(u => { if (!activeIds.has(u.id)) throw new Error('Sync update refers to an IMP that is no longer active.'); });
     preparedRevisions.forEach(r => {
