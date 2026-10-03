@@ -45,6 +45,30 @@ For local testing, serve this folder with `python -m http.server 8080` or `npx s
 
 The app reproduces the main scheduling rules and key workbook data views, not Google Sheets itself. v7 adds direct offline workbook import and a wider Master Entry table; v6 introduced better bulk data management but does not provide live Google Sheets sync, pixel-identical spreadsheet behavior, every formula helper column, or all cell-level dropdown/formatting behavior. Workbook-style capacity warnings show 1,000 IMPs / 9,999 revisions. This is a client-side app and does not guarantee data recovery if device storage is removed.
 
+## Google Sheets live sync (v7.1 integration)
+
+The PWA can sync to the Google Sheet through a private Google Apps Script deployment. It uses a popup bridge and does not put OAuth tokens, API keys, or spreadsheet credentials in the public Pages code.
+
+### One-time setup
+
+1. In the Apps Script project attached to the target spreadsheet, replace `Code.gs` with `apps-script/Code.gs` from this repository.
+2. Create a new HTML file named **Bridge** in the Apps Script editor and paste the complete contents of `apps-script/Bridge.html`. Keep the existing `Index.html` manager file.
+3. Save the project, run an owner-authorized function once if Apps Script requests permission, then create a **new web-app deployment version**.
+4. Deploy with **Execute as: Me** and **Who has access: Only myself** (or the narrowest available option that limits access to the spreadsheet owner). Never publish the backend to “Anyone”.
+5. Copy the deployed web-app URL ending in `/exec`. In MBBS Recall Pro → Settings → Google Sheets sync, enter that URL and choose **Preview Google Sheet**.
+
+### Safe sync behavior
+
+- **Preview** reads Master Entry A:I, Revision Log A:D, and Units Config without writing.
+- **Import Sheet into app** downloads a full JSON backup and then replaces the local IMP/revision lists with the Sheet snapshot. The exam date and interval settings remain local to the PWA.
+- **Sync changes safely** uses the last imported/synced snapshot to detect local-vs-Sheet edits. It uploads new local IMPs, updates unchanged-on-Sheet IMP rows with exact-snapshot conflict checks, and appends new revisions. It then re-reads the Sheet and aligns the local copy.
+- If both copies changed the same IMP, or a previously synced revision was edited/deleted, the operation stops before writing and reports a conflict.
+- Deletes are deliberately **not** propagated to Google Sheets. A locally deleted IMP may reappear on the next sync; archive/delete decisions must be made deliberately in the Sheet manager.
+- Sync is manual, not automatic. Keep the popup open until the operation completes. A failed or interrupted operation should be followed by Preview before retrying.
+- The server writes only Master Entry A:I and Revision Log A:D. Calculated columns and formatting are not overwritten. Archive/restore remains a separate recovery workflow.
+
+The integration is opt-in and does not activate until the Apps Script bridge file is installed and a new deployment is published. GitHub Pages updates alone do not update the Apps Script deployment.
+
 ## Developer tests
 
 The `tests/` folder contains offline automated checks; it is not needed for normal studying. With Node.js installed, run `node tests/engine.test.js`, `node tests/app-regression.test.js`, and `node tests/xlsx-import.test.js` from this folder. These checks do not replace testing on your Android device.
