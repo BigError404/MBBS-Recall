@@ -96,7 +96,7 @@ async function handleImportFile(f){try{const name=f.name.toLowerCase();if(name.e
 /* Authenticated Google Apps Script popup bridge. No Google tokens are stored in this PWA. */
 const SHEETS_SYNC_URL_KEY='mbbs-recall-sheets-url-v1';
 const SHEETS_SYNC_BASE_KEY='mbbs-recall-sheets-baseline-v1';
-let sheetsBridgeWindow=null,sheetsBridgeNonce='',sheetsBridgeReady=false,sheetsBridgeReadyResolve=null,sheetsBridgeReadyReject=null;
+let sheetsBridgeFrame=null,sheetsBridgeNonce='',sheetsBridgeReady=false,sheetsBridgeReadyResolve=null,sheetsBridgeReadyReject=null;
 let sheetsBridgePending=new Map(),sheetsBridgeSeq=0,sheetsSyncSnapshot=null;
 function sheetsSyncUrl(){try{return localStorage.getItem(SHEETS_SYNC_URL_KEY)||''}catch(e){return ''}}
 function sheetsSyncBase(){try{return JSON.parse(localStorage.getItem(SHEETS_SYNC_BASE_KEY)||'null')}catch(e){return null}}
@@ -104,8 +104,6 @@ function sheetsSaveBaseline(snapshot){try{localStorage.setItem(SHEETS_SYNC_BASE_
 function sheetsSyncStatus(text,error=false){const el=$('#sheetsSyncStatus');if(el){el.textContent=text;el.className='notice '+(error?'error':'good')}else toast(text,error?'error':'ok')}
 function sheetsSaveUrl(){const input=$('#sheetsSyncUrl');const value=String(input?.value||sheetsSyncUrl()).trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec(?:[?#].*)?$/.test(value))throw Error('Enter the Apps Script web app URL ending in /exec.');try{localStorage.setItem(SHEETS_SYNC_URL_KEY,value)}catch(e){throw Error('Browser storage is unavailable; the Apps Script URL could not be saved.')}return value}
 function sheetsBridgeMessage(event){
-  // HtmlService may dispatch messages from its content frame rather than the popup
-  // WindowProxy. The random nonce and strict origin allowlist authenticate the bridge.
   if(!event.data||event.data.nonce!==sheetsBridgeNonce)return;
   if(event.origin!=='https://script.google.com'&&!/^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/.test(event.origin))return;
   const data=event.data;
@@ -118,24 +116,31 @@ function sheetsBridgeMessage(event){
 }
 window.addEventListener('message',sheetsBridgeMessage);
 function sheetsEnsureBridge(){
-  if(sheetsBridgeWindow&&!sheetsBridgeWindow.closed&&sheetsBridgeReady)return Promise.resolve();
+  if(sheetsBridgeFrame&&sheetsBridgeFrame.isConnected&&sheetsBridgeReady)return Promise.resolve();
   const base=sheetsSaveUrl().split(/[?#]/)[0];
   sheetsBridgeNonce=Array.from(crypto.getRandomValues(new Uint8Array(18)),b=>b.toString(16).padStart(2,'0')).join('');
   sheetsBridgeReady=false;
   const ready=new Promise((resolve,reject)=>{sheetsBridgeReadyResolve=resolve;sheetsBridgeReadyReject=reject;});
-  const separator=base.includes('?')?'&':'?';
-  sheetsBridgeWindow=window.open(base+separator+'bridge=1&nonce='+encodeURIComponent(sheetsBridgeNonce),'mbbsRecallSheetsBridge','popup,width=520,height=720');
-  if(!sheetsBridgeWindow){sheetsBridgeReadyResolve=null;sheetsBridgeReadyReject=null;throw Error('The browser blocked the Google connection popup. Allow popups for the MBBS Recall site and retry.')}
-  const timer=setTimeout(()=>{if(!sheetsBridgeReady){if(sheetsBridgeReadyReject)sheetsBridgeReadyReject(Error('The Apps Script bridge did not connect. Check that the latest Code.gs and Bridge.html are deployed, and that the deployment is accessible to your Google account.'));sheetsBridgeReadyResolve=null;sheetsBridgeReadyReject=null}},20000);
+  if(sheetsBridgeFrame)sheetsBridgeFrame.remove();
+  const frame=document.createElement('iframe');
+  frame.title='Secure Google Sheets connection';
+  frame.setAttribute('aria-hidden','true');
+  frame.style.cssText='position:fixed;width:2px;height:2px;right:0;bottom:0;opacity:0.01;border:0;pointer-events:none';
+  frame.src=base+'?bridge=1&nonce='+encodeURIComponent(sheetsBridgeNonce);
+  frame.addEventListener('error',()=>{if(sheetsBridgeReadyReject)sheetsBridgeReadyReject(Error('Could not load the Apps Script bridge. Check the deployed web app URL and Google account access.'))},{once:true});
+  sheetsBridgeFrame=frame;
+  document.body.appendChild(frame);
+  const timer=setTimeout(()=>{if(!sheetsBridgeReady){if(sheetsBridgeReadyReject)sheetsBridgeReadyReject(Error('The embedded Apps Script bridge did not connect. Update Code.gs and Bridge.html from the repository, deploy a new version, and retry.'));sheetsBridgeReadyResolve=null;sheetsBridgeReadyReject=null}},25000);
   return ready.finally(()=>clearTimeout(timer));
 }
 async function sheetsBridgeCall(method,payload){
   await sheetsEnsureBridge();
   const id=String(++sheetsBridgeSeq);
   return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{sheetsBridgePending.delete(id);reject(Error('Google Sheets did not respond. Keep the bridge popup open and preview again before retrying.'))},60000);
+    const timer=setTimeout(()=>{sheetsBridgePending.delete(id);reject(Error('Google Sheets did not respond. Preview again before retrying.'))},60000);
     sheetsBridgePending.set(id,{resolve,reject,timer});
-    sheetsBridgeWindow.postMessage({type:'MBBS_SYNC_REQUEST',nonce:sheetsBridgeNonce,id,method,payload},'*');
+    try{sheetsBridgeFrame.contentWindow.postMessage({type:'MBBS_SYNC_REQUEST',nonce:sheetsBridgeNonce,id,method,payload},'*')}
+    catch(error){clearTimeout(timer);sheetsBridgePending.delete(id);reject(error)}
   });
 }
 function sheetsRemoteCard(r){return {id:Number(r.id),entryDate:String(r.entryDate||''),subject:String(r.subject||''),unit:String(r.unit||''),question:String(r.question||''),answer:String(r.answer||''),source:String(r.source||''),notes:String(r.notes||''),priority:String(r.priority||'Regular')}}
