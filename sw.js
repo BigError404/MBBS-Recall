@@ -1,4 +1,4 @@
-const CACHE='mbbs-recall-pro-v7.1-sheets-sync';
+const CACHE='mbbs-recall-pro-v7.2-sheets-bridge-fix';
 const CORE=['./','./index.html','./manifest.json','./icon.svg','./engine.js','./app.js','./workbook-seed.js','./xlsx-import.js'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('mbbs-recall-pro-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
