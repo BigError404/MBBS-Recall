@@ -266,3 +266,27 @@ function dateValue_(input, existingRaw, existingDisplay) {
 }
 function requireSheet_(ss,name){if(!ss)throw new Error('Spreadsheet context unavailable.');const sh=ss.getSheetByName(name);if(!sh)throw new Error('Required tab not found: '+name);return sh;}
 function withLock_(fn){const lock=LockService.getScriptLock();if(!lock.tryLock(CFG.LOCK_MS))throw new Error('Another save is in progress. Wait a moment and retry.');try{return fn();}finally{lock.releaseLock();}}
+
+
+/** Returns distinct subjects and subject-specific units from Master Entry. */
+function getSubjectUnitOptions() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh = requireSheet_(ss, CFG.MASTER);
+  const last = lastDataRow_(sh, CFG.MASTER_FIRST_ROW, 1);
+  if (last < CFG.MASTER_FIRST_ROW) return {subjects: [], unitsBySubject: {}};
+  const rows = sh.getRange(CFG.MASTER_FIRST_ROW, 3, last-CFG.MASTER_FIRST_ROW+1, 2).getDisplayValues();
+  const subjects = new Set();
+  const unitsBySubject = {};
+  rows.forEach(([subject, unit]) => {
+    subject = String(subject || '').trim();
+    unit = String(unit || '').trim();
+    if (!subject) return;
+    subjects.add(subject);
+    if (!unitsBySubject[subject]) unitsBySubject[subject] = [];
+    if (unit && !unitsBySubject[subject].includes(unit)) unitsBySubject[subject].push(unit);
+  });
+  return {
+    subjects: Array.from(subjects).sort((a,b)=>a.localeCompare(b)),
+    unitsBySubject: unitsBySubject
+  };
+}
