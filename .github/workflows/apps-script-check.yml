@@ -28,6 +28,8 @@ jobs:
           Path('/tmp/index-client.js').write_text('\n'.join(scripts))
           PY
           node --check /tmp/index-client.js
+      - name: Check Apps Script server JavaScript syntax
+        run: node --check < apps-script/Code.gs
       - name: Check Apps Script safety contract
         run: |
           python3 - <<'PY'
