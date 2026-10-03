@@ -39,7 +39,11 @@ jobs:
             'optimistic edit conflict check':'expectedSnapshot' in s,
             'recoverable archive':'CFG.ARCHIVE' in s and 'archive.getRange(archiveRow, 1, 1, 12).setValues' in s,
             'archive restore path':'function restoreArchived(input)' in s,
+            'archive verifies all nine fields before clearing':'sameCells_(verified, rawCurrent)' in s,
+            'restore verifies all nine fields':'sameCells_(restoredCheck, original)' in s,
             'archive preserves all nine fields':'...rawCurrent' in s,
+            'archive status header repaired':'current[12]' in s and "headers[12]" in s,
+            'duplicate restore recovery is content-aware':'sameCells_(existing, original)' in s,
             'archived IDs cannot be reused':'Include archived IDs' in s,
             'date preservation helper':'function dateValue_(' in s,
             'ISO date regex parses yyyy-mm-dd':r'/^(\d{4})-(\d{2})-(\d{2})$/.exec(value)' in s,
@@ -51,4 +55,13 @@ jobs:
           }
           for k,v in checks.items(): print(('PASS' if v else 'FAIL')+' '+k)
           assert all(checks.values())
+          ui=Path('apps-script/Index.html').read_text()
+          ui_checks={
+            'archive list reloads after archive':'await Promise.all([refresh(true),loadArchive()])' in ui,
+            'archive list reloads after restore':'async function restoreArchivedRow' in ui and 'await Promise.all([refresh(true),loadArchive()])' in ui,
+            'refresh can preserve action status':'async function refresh(quiet=false)' in ui,
+            'no refresh success message overrides action status':"if(!quiet)msg('Records refreshed from Google Sheets.')" in ui,
+          }
+          for k,v in ui_checks.items(): print(('PASS' if v else 'FAIL')+' '+k)
+          assert all(ui_checks.values())
           PY
