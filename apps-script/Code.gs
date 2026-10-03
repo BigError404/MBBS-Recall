@@ -213,17 +213,13 @@ function nextId_(sh) {
   return (ids.length?Math.max(...ids):0)+1;
 }
 function lastDataRow_(sh, firstRow, col) {
-  // Scan backwards in small blocks: the workbook pre-fills thousands of formula rows,
-  // so reading the entire 10,000-row Revision Log on every request is needlessly slow.
+  // One batched read is faster than dozens of small range reads on mobile workflows.
+  // Scan in memory because the Revision Log may have formulas prefilled to row 10,000.
   const last = sh.getLastRow();
   if (last < firstRow) return firstRow - 1;
-  const blockSize = 250;
-  for (let end = last; end >= firstRow; end -= blockSize) {
-    const start = Math.max(firstRow, end - blockSize + 1);
-    const vals = sh.getRange(start, col, end - start + 1, 1).getDisplayValues();
-    for (let i = vals.length - 1; i >= 0; i--) {
-      if (String(vals[i][0]).trim() !== '') return start + i;
-    }
+  const vals = sh.getRange(firstRow, col, last - firstRow + 1, 1).getDisplayValues();
+  for (let i = vals.length - 1; i >= 0; i--) {
+    if (String(vals[i][0]).trim() !== '') return firstRow + i;
   }
   return firstRow - 1;
 }
