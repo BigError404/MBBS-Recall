@@ -47,6 +47,8 @@ jobs:
             'archive status header repaired':'current[12]' in s and "headers[12]" in s,
             'duplicate restore recovery is content-aware':'sameCells_(existing, original)' in s,
             'archived IDs cannot be reused':'Include archived IDs' in s,
+            'subject dropdown reads full Units Config catalog':"getSheetByName('Units Config')" in s and 'config.getRange(1, 1' in s and 'config.getRange(2, 1' in s,
+            'subject catalog is not limited to existing IMPs':'unitsBySubject[subject]' in s and 'Preserve any subjects/units already used in records' in s,
             'date preservation helper':'function dateValue_(' in s,
             'ISO date regex parses yyyy-mm-dd':r'/^(\d{4})-(\d{2})-(\d{2})$/.exec(value)' in s,
             'script lock':'LockService.getScriptLock()' in s,
