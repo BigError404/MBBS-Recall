@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><base target="_top"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font:16px system-ui,sans-serif;margin:0;padding:24px;color:#19364c;background:#f3f6f9}main{max-width:560px;margin:8vh auto;background:#fff;border:1px solid #dce4ec;border-radius:16px;padding:22px}h1{font-size:20px;margin:0 0 12px}.status{padding:12px;border-radius:10px;background:#edf7fb;font-size:14px}.small{color:#64748b;font-size:12px;line-height:1.5}
+</style></head><body><main><h1>MBBS Recall Pro — Secure Google Sheets connection</h1><p id="status" class="status">Connecting to the app…</p><p class="small">Keep this window open while a sync operation is running. This bridge accepts requests only from the official MBBS Recall Pro GitHub Pages origin and exposes only the sync snapshot and guarded sync functions.</p></main>
+<script>
+(function(){
+  'use strict';
+  const ALLOWED_ORIGIN='https://bigerror404.github.io';
+  const nonce=String(location.hash||'').slice(1);
+  const status=document.getElementById('status');
+  function send(message){if(window.opener)window.opener.postMessage(Object.assign({nonce:nonce},message),ALLOWED_ORIGIN);}
+  if(!window.opener||!nonce){status.textContent='This connection was not opened by MBBS Recall Pro. Close this window and connect from the app.';return;}
+  window.addEventListener('message',function(event){
+    if(event.origin!==ALLOWED_ORIGIN||event.source!==window.opener)return;
+    const m=event.data||{};
+    if(m.nonce!==nonce||m.type!=='MBBS_SYNC_REQUEST')return;
+    const id=String(m.id||'');
+    const payload=m.payload;
+    if(m.method==='getSyncSnapshot'){
+      status.textContent='Reading Master Entry, Revision Log and Units Config…';
+      google.script.run.withSuccessHandler(function(result){status.textContent='Snapshot loaded. Return to MBBS Recall Pro.';send({type:'MBBS_SYNC_RESULT',id:id,ok:true,result:result});})
+        .withFailureHandler(function(error){status.textContent='Sync read failed. Return to the app for details.';send({type:'MBBS_SYNC_RESULT',id:id,ok:false,error:String(error&&error.message||error)});})
+        .getSyncSnapshot();
+    }else if(m.method==='syncApplyChanges'){
+      status.textContent='Applying guarded changes and verifying saved rows…';
+      google.script.run.withSuccessHandler(function(result){status.textContent='Sync changes completed. Return to MBBS Recall Pro.';send({type:'MBBS_SYNC_RESULT',id:id,ok:true,result:result});})
+        .withFailureHandler(function(error){status.textContent='Some sync operation was rejected or failed verification. Refresh the snapshot before retrying.';send({type:'MBBS_SYNC_RESULT',id:id,ok:false,error:String(error&&error.message||error)});})
+        .syncApplyChanges(payload||{});
+    }else{
+      send({type:'MBBS_SYNC_RESULT',id:id,ok:false,error:'This bridge method is not allowed.'});
+    }
+  });
+  send({type:'MBBS_SYNC_READY'});
+  status.textContent='Connected. Return to the app to continue.';
+})();
+</script></body></html>
