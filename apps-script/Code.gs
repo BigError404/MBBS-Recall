@@ -11,7 +11,13 @@ const CFG = Object.freeze({
   ARCHIVE: '_MBBS Recall Archive', LOCK_MS: 15000
 });
 
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.bridge === '1') {
+    return HtmlService.createHtmlOutputFromFile('Bridge')
+      .setTitle('MBBS Recall Pro — Secure Sheets Bridge')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('MBBS Recall Pro — Sheet Manager')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -204,6 +210,192 @@ function getRecentRevisions(limit) {
   const start = Math.max(CFG.REVISION_FIRST_ROW, last - cap + 1);
   const vals = sh.getRange(start, 1, last - start + 1, CFG.REVISION_INPUT_COLS).getDisplayValues();
   return vals.map((r,i)=>({row:start+i,date:r[0],id:r[1],result:r[2],notes:r[3]})).filter(r=>r.date||r.id||r.result||r.notes).reverse();
+}
+
+
+/**
+ * Full read-only snapshot for the offline-first PWA sync layer.
+ * Reads only user-input columns and catalog values; formulas are never exported
+ * as writable data. The bridge exposes this function only through an allowlist.
+ */
+function getSyncSnapshot() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const master = requireSheet_(ss, CFG.MASTER);
+  const revision = requireSheet_(ss, CFG.REVISION);
+  const masterLast = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
+  const masterRows = masterLast >= CFG.MASTER_FIRST_ROW
+    ? master.getRange(CFG.MASTER_FIRST_ROW, 1, masterLast-CFG.MASTER_FIRST_ROW+1, CFG.MASTER_INPUT_COLS).getValues() : [];
+  const masterDisplay = masterLast >= CFG.MASTER_FIRST_ROW
+    ? master.getRange(CFG.MASTER_FIRST_ROW, 1, masterLast-CFG.MASTER_FIRST_ROW+1, CFG.MASTER_INPUT_COLS).getDisplayValues() : [];
+  const cards = [];
+  masterRows.forEach((r, i) => {
+    if (!r.some(v => String(v === null || v === undefined ? '' : v).trim() !== '')) return;
+    const d = masterDisplay[i];
+    cards.push({
+      row: CFG.MASTER_FIRST_ROW+i, id: String(d[0] || ''),
+      entryDate: isoDate_(r[1], d[1]), subject: String(d[2] || ''),
+      unit: String(d[3] || ''), question: String(d[4] || ''),
+      answer: String(d[5] || ''), source: String(d[6] || ''),
+      notes: String(d[7] || ''), priority: String(d[8] || 'Regular'),
+      snapshot: d.slice(0, CFG.MASTER_INPUT_COLS)
+    });
+  });
+  const revLast = lastDataRow_(revision, CFG.REVISION_FIRST_ROW, 1);
+  const revRows = revLast >= CFG.REVISION_FIRST_ROW
+    ? revision.getRange(CFG.REVISION_FIRST_ROW, 1, revLast-CFG.REVISION_FIRST_ROW+1, CFG.REVISION_INPUT_COLS).getValues() : [];
+  const revDisplay = revLast >= CFG.REVISION_FIRST_ROW
+    ? revision.getRange(CFG.REVISION_FIRST_ROW, 1, revLast-CFG.REVISION_FIRST_ROW+1, CFG.REVISION_INPUT_COLS).getDisplayValues() : [];
+  const reviews = [];
+  revRows.forEach((r, i) => {
+    if (!r.some(v => String(v === null || v === undefined ? '' : v).trim() !== '')) return;
+    const d = revDisplay[i];
+    reviews.push({
+      row: CFG.REVISION_FIRST_ROW+i, logDate: isoDate_(r[0], d[0]),
+      impId: String(d[1] || ''), result: String(d[2] || '').trim().toUpperCase(),
+      notes: String(d[3] || ''), snapshot: d.slice(0, CFG.REVISION_INPUT_COLS)
+    });
+  });
+  const config = requireSheet_(ss, 'Units Config');
+  const width = Math.min(12, Math.max(1, config.getMaxColumns()));
+  const headers = config.getRange(1, 1, 1, width).getDisplayValues()[0];
+  const rowCount = Math.min(200, Math.max(1, config.getMaxRows()-1));
+  const unitsRows = config.getRange(2, 1, rowCount, width).getDisplayValues();
+  const unitsBySubject = {};
+  headers.forEach((h, col) => {
+    const subject = String(h || '').trim();
+    if (!subject) return;
+    unitsBySubject[subject] = [];
+    unitsRows.forEach(row => {
+      const unit = String(row[col] || '').trim();
+      if (unit && !unitsBySubject[subject].includes(unit)) unitsBySubject[subject].push(unit);
+    });
+  });
+  Object.keys(unitsBySubject).forEach(s => unitsBySubject[s].sort((a,b)=>a.localeCompare(b)));
+  return {title:ss.getName(), fetchedAt:new Date().toISOString(), master:cards, revisions:reviews, units:unitsBySubject};
+}
+
+/**
+ * Applies a reviewed change plan under one script lock. Updates require the
+ * exact nine-cell snapshot read earlier. New cards and revisions use stable
+ * client keys so retrying after a lost browser response does not duplicate them.
+ * Deletions are intentionally unsupported; use the recoverable archive manager.
+ */
+function syncApplyChanges(plan) {
+  return withLock_(() => {
+    if (!plan || typeof plan !== 'object') throw new Error('Sync change plan is missing.');
+    const adds = Array.isArray(plan.adds) ? plan.adds : [];
+    const updates = Array.isArray(plan.updates) ? plan.updates : [];
+    const revisions = Array.isArray(plan.revisions) ? plan.revisions : [];
+    if (adds.length > 1000 || updates.length > 1000 || revisions.length > 5000) throw new Error('Sync batch exceeds the safe batch limit.');
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const master = requireSheet_(ss, CFG.MASTER), rev = requireSheet_(ss, CFG.REVISION);
+    const props = PropertiesService.getScriptProperties();
+    const addKeys = new Set(), updateRows = new Set();
+    const preparedAdds = adds.map(a => {
+      const key = String(a && a.clientKey || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(key) || addKeys.has(key)) throw new Error('Every new IMP needs a unique, stable sync key.');
+      addKeys.add(key);
+      const record = validateRecord_(a.record);
+      return {key, record, existingId: props.getProperty('MBBS_SYNC_ADD_'+key)};
+    });
+    const preparedUpdates = updates.map(u => {
+      const row = Number(u && u.row), id = String(u && u.id || '');
+      if (!Number.isInteger(row) || row < CFG.MASTER_FIRST_ROW || row > master.getMaxRows()) throw new Error('Sync update has an invalid sheet row.');
+      if (updateRows.has(row)) throw new Error('Sync plan contains duplicate updates for one sheet row.');
+      updateRows.add(row);
+      const current = master.getRange(row,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0];
+      if (String(current[0]) !== id) throw new Error('Sync conflict: an IMP ID changed rows. Refresh the snapshot and retry.');
+      if (!Array.isArray(u.expectedSnapshot) || u.expectedSnapshot.length !== CFG.MASTER_INPUT_COLS ||
+          current.some((v,i)=>String(v)!==String(u.expectedSnapshot[i] ?? ''))) {
+        throw new Error('Sync conflict: an IMP changed in Google Sheets after the preview. No sync writes were started.');
+      }
+      return {row,id,current,record:validateRecord_(u.record)};
+    });
+    const preparedRevisions = revisions.map(r => {
+      const key = String(r && r.clientKey || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(key)) throw new Error('Every new revision needs a stable sync key.');
+      const date = String(r.logDate || '').trim(), resultInput = String(r.result || '').trim().toLowerCase();
+      const resultMap = {pass:'Pass',fail:'Fail',partial:'Partial'};
+      const result = resultMap[resultInput] || '';
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !result) throw new Error('Sync revision has an invalid date or result.');
+      const impClientKey = String(r.impClientKey || '').trim();
+      const impId = String(r.impId || '').trim();
+      if (!impId && (!impClientKey || !addKeys.has(impClientKey))) throw new Error('Sync revision refers to an unknown IMP.');
+      return {key, date, result, notes:String(r.notes || '').trim(), impId, impClientKey};
+    });
+    const activeIds = new Set();
+    const masterLast = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
+    if (masterLast >= CFG.MASTER_FIRST_ROW) master.getRange(CFG.MASTER_FIRST_ROW,1,masterLast-CFG.MASTER_FIRST_ROW+1,1).getDisplayValues().flat().forEach(v=>{if(v)activeIds.add(String(v));});
+    preparedAdds.forEach(a => {
+      if (a.existingId && !activeIds.has(String(a.existingId))) throw new Error('A previous sync add is recorded but its IMP is missing from Master Entry. Resolve the archive before retrying.');
+    });
+    preparedUpdates.forEach(u => { if (!activeIds.has(u.id)) throw new Error('Sync update refers to an IMP that is no longer active.'); });
+    preparedRevisions.forEach(r => {
+      if (r.impId && !activeIds.has(r.impId) && !preparedAdds.some(a=>a.key===r.impId)) throw new Error('Sync revision refers to an IMP ID that is not active.');
+      if (props.getProperty('MBBS_SYNC_REV_'+r.key)) return;
+    });
+
+    const idMap = {}, added = [], updated = [], revisionRows = [];
+    preparedAdds.forEach(a => {
+      if (a.existingId) { idMap[a.key] = String(a.existingId); return; }
+      const id = nextId_(master), last = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
+      const row = Math.max(CFG.MASTER_FIRST_ROW, last+1), d = a.record;
+      master.getRange(row,1,1,CFG.MASTER_INPUT_COLS).setValues([[id,dateValue_(d.entryDate,null,''),d.subject,d.unit,d.question,d.answer,d.source,d.notes,d.priority]]);
+      SpreadsheetApp.flush();
+      const check = master.getRange(row,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0];
+      if (String(check[0]) !== String(id) || check[2] !== d.subject || check[3] !== d.unit || check[4] !== d.question ||
+          check[5] !== d.answer || check[6] !== d.source || check[7] !== d.notes || check[8] !== d.priority) {
+        throw new Error('A new IMP could not be verified. Do not retry blindly; refresh the sheet snapshot first.');
+      }
+      props.setProperty('MBBS_SYNC_ADD_'+a.key, String(id));
+      idMap[a.key] = String(id); added.push({clientKey:a.key,id:String(id),row});
+    });
+    preparedUpdates.forEach(u => {
+      const d=u.record, oldDate=master.getRange(u.row,2).getValue();
+      master.getRange(u.row,1,1,CFG.MASTER_INPUT_COLS).setValues([[u.id,dateValue_(d.entryDate,oldDate,u.current[1]),d.subject,d.unit,d.question,d.answer,d.source,d.notes,d.priority]]);
+      SpreadsheetApp.flush();
+      const check=master.getRange(u.row,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0];
+      if(String(check[0])!==u.id || check[2]!==d.subject || check[3]!==d.unit || check[4]!==d.question || check[5]!==d.answer || check[6]!==d.source || check[7]!==d.notes || check[8]!==d.priority) throw new Error('An IMP update failed verification. Refresh the snapshot before retrying.');
+      updated.push({id:u.id,row:u.row});
+    });
+    const revLast = lastDataRow_(rev, CFG.REVISION_FIRST_ROW, 1);
+    const existingRevRows = revLast >= CFG.REVISION_FIRST_ROW
+      ? rev.getRange(CFG.REVISION_FIRST_ROW,1,revLast-CFG.REVISION_FIRST_ROW+1,CFG.REVISION_INPUT_COLS).getValues() : [];
+    const existingRevDisplay = revLast >= CFG.REVISION_FIRST_ROW
+      ? rev.getRange(CFG.REVISION_FIRST_ROW,1,revLast-CFG.REVISION_FIRST_ROW+1,CFG.REVISION_INPUT_COLS).getDisplayValues() : [];
+    const existingSigs = new Set();
+    existingRevRows.forEach((r,i)=>existingSigs.add([isoDate_(r[0],existingRevDisplay[i][0]),String(existingRevDisplay[i][1]||''),String(existingRevDisplay[i][2]||'').trim().toUpperCase(),String(existingRevDisplay[i][3]||'').trim()].join('|')));
+    preparedRevisions.forEach(r => {
+      const oldId = r.impClientKey ? idMap[r.impClientKey] : r.impId;
+      if (!oldId) throw new Error('A new revision could not be mapped to its saved IMP ID.');
+      if (props.getProperty('MBBS_SYNC_REV_'+r.key)) { revisionRows.push({clientKey:r.key,duplicate:true}); return; }
+      const sig=[r.date,String(oldId),r.result.toUpperCase(),r.notes].join('|');
+      if (existingSigs.has(sig)) {
+        props.setProperty('MBBS_SYNC_REV_'+r.key,'existing');
+        revisionRows.push({clientKey:r.key,duplicate:true});
+        return;
+      }
+      const row=Math.max(CFG.REVISION_FIRST_ROW,lastDataRow_(rev,CFG.REVISION_FIRST_ROW,1)+1);
+      rev.getRange(row,1,1,CFG.REVISION_INPUT_COLS).setValues([[dateValue_(r.date,null,''),Number(oldId),r.result,r.notes]]);
+      SpreadsheetApp.flush();
+      const check=rev.getRange(row,1,1,CFG.REVISION_INPUT_COLS).getDisplayValues()[0];
+      if(String(check[1])!==String(oldId) || String(check[2]).toUpperCase()!==r.result.toUpperCase() || String(check[3])!==r.notes) throw new Error('A revision write failed verification. Refresh the sheet snapshot before retrying.');
+      props.setProperty('MBBS_SYNC_REV_'+r.key,'saved');
+      existingSigs.add(sig); revisionRows.push({clientKey:r.key,row});
+    });
+    return {ok:true,idMap,added,updated,revisions:revisionRows,message:'Sync batch completed; each write was verified and formula columns were untouched.'};
+  });
+}
+
+function isoDate_(raw, display) {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    return String(raw.getFullYear())+'-'+String(raw.getMonth()+1).padStart(2,'0')+'-'+String(raw.getDate()).padStart(2,'0');
+  }
+  const s=String(display || raw || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d=new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  return String(d.getFullYear())+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
 function validateRecord_(x) {
