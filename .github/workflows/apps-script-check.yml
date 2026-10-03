@@ -3,9 +3,11 @@ on:
   pull_request:
     paths:
       - 'apps-script/**'
+      - 'app.js'
+      - 'sw.js'
       - '.github/workflows/apps-script-check.yml'
   push:
-    branches: [apps-script-safe-write-layer]
+    branches: [apps-script-safe-write-layer, sheets-sync-integration]
     paths:
       - 'apps-script/**'
       - '.github/workflows/apps-script-check.yml'
