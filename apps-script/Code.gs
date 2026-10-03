@@ -467,7 +467,12 @@ function dateValue_(input, existingRaw, existingDisplay) {
   if (existingDisplay && value === String(existingDisplay)) return existingRaw;
   // Native date input uses yyyy-mm-dd; parse locally to avoid timezone date shifts.
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 12, 0, 0);
+  if (m) {
+    const year=Number(m[1]), month=Number(m[2])-1, day=Number(m[3]);
+    const parsed=new Date(year,month,day,12,0,0);
+    if(parsed.getFullYear()!==year || parsed.getMonth()!==month || parsed.getDate()!==day) throw new Error('Entry Date must be a real calendar date.');
+    return parsed;
+  }
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) return parsed;
   throw new Error('Entry Date must be a valid date.');
