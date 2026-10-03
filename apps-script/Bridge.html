@@ -7,12 +7,23 @@ body{font:16px system-ui,sans-serif;margin:0;padding:24px;color:#19364c;backgrou
 (function(){
   'use strict';
   const ALLOWED_ORIGIN='https://bigerror404.github.io';
-  const nonce=String(location.hash||'').slice(1);
+  // Query parameters survive Apps Script redirects more reliably than fragments.
+  const params=new URLSearchParams(location.search);
+  const nonce=String(params.get('nonce')||String(location.hash||'').slice(1));
   const status=document.getElementById('status');
-  function send(message){if(window.opener)window.opener.postMessage(Object.assign({nonce:nonce},message),ALLOWED_ORIGIN);}
-  if(!window.opener||!nonce){status.textContent='This connection was not opened by MBBS Recall Pro. Close this window and connect from the app.';return;}
-  window.addEventListener('message',function(event){
-    if(event.origin!==ALLOWED_ORIGIN||event.source!==window.opener)return;
+  function openerWindow(){
+    try { if(window.opener && !window.opener.closed) return window.opener; } catch(e) {}
+    try { if(window.top && window.top.opener && !window.top.opener.closed) return window.top.opener; } catch(e) {}
+    return null;
+  }
+  function send(message){
+    const target=openerWindow();
+    if(target && nonce) target.postMessage(Object.assign({nonce:nonce},message),ALLOWED_ORIGIN);
+  }
+  const opener=openerWindow();
+  if(!opener||!nonce){status.textContent='This connection was not opened by MBBS Recall Pro. Close this window and connect from the app.';return;}
+  function onBridgeMessage(event){
+    if(event.origin!==ALLOWED_ORIGIN)return;
     const m=event.data||{};
     if(m.nonce!==nonce||m.type!=='MBBS_SYNC_REQUEST')return;
     const id=String(m.id||'');
@@ -30,7 +41,10 @@ body{font:16px system-ui,sans-serif;margin:0;padding:24px;color:#19364c;backgrou
     }else{
       send({type:'MBBS_SYNC_RESULT',id:id,ok:false,error:'This bridge method is not allowed.'});
     }
-  });
+  }
+  window.addEventListener('message',onBridgeMessage);
+  try { if(window.top && window.top!==window) window.top.addEventListener('message',onBridgeMessage); } catch(e) {}
+
   send({type:'MBBS_SYNC_READY'});
   status.textContent='Connected. Return to the app to continue.';
 })();
