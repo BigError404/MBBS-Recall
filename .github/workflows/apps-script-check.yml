@@ -7,7 +7,7 @@ on:
       - 'sw.js'
       - '.github/workflows/apps-script-check.yml'
   push:
-    branches: [apps-script-safe-write-layer, sheets-sync-integration]
+    branches: [main, apps-script-safe-write-layer, sheets-sync-integration]
     paths:
       - 'apps-script/**'
       - '.github/workflows/apps-script-check.yml'
