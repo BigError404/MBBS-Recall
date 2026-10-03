@@ -104,7 +104,9 @@ function sheetsSaveBaseline(snapshot){try{localStorage.setItem(SHEETS_SYNC_BASE_
 function sheetsSyncStatus(text,error=false){const el=$('#sheetsSyncStatus');if(el){el.textContent=text;el.className='notice '+(error?'error':'good')}else toast(text,error?'error':'ok')}
 function sheetsSaveUrl(){const input=$('#sheetsSyncUrl');const value=String(input?.value||sheetsSyncUrl()).trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec(?:[?#].*)?$/.test(value))throw Error('Enter the Apps Script web app URL ending in /exec.');try{localStorage.setItem(SHEETS_SYNC_URL_KEY,value)}catch(e){throw Error('Browser storage is unavailable; the Apps Script URL could not be saved.')}return value}
 function sheetsBridgeMessage(event){
-  if(event.source!==sheetsBridgeWindow||!event.data||event.data.nonce!==sheetsBridgeNonce)return;
+  // HtmlService may dispatch messages from its content frame rather than the popup
+  // WindowProxy. The random nonce and strict origin allowlist authenticate the bridge.
+  if(!event.data||event.data.nonce!==sheetsBridgeNonce)return;
   if(event.origin!=='https://script.google.com'&&!/^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/.test(event.origin))return;
   const data=event.data;
   if(data.type==='MBBS_SYNC_READY'){sheetsBridgeReady=true;if(sheetsBridgeReadyResolve)sheetsBridgeReadyResolve();sheetsBridgeReadyResolve=null;sheetsBridgeReadyReject=null;return}
@@ -121,7 +123,8 @@ function sheetsEnsureBridge(){
   sheetsBridgeNonce=Array.from(crypto.getRandomValues(new Uint8Array(18)),b=>b.toString(16).padStart(2,'0')).join('');
   sheetsBridgeReady=false;
   const ready=new Promise((resolve,reject)=>{sheetsBridgeReadyResolve=resolve;sheetsBridgeReadyReject=reject;});
-  sheetsBridgeWindow=window.open(base+'?bridge=1#'+sheetsBridgeNonce,'mbbsRecallSheetsBridge','popup,width=520,height=720');
+  const separator=base.includes('?')?'&':'?';
+  sheetsBridgeWindow=window.open(base+separator+'bridge=1&nonce='+encodeURIComponent(sheetsBridgeNonce),'mbbsRecallSheetsBridge','popup,width=520,height=720');
   if(!sheetsBridgeWindow){sheetsBridgeReadyResolve=null;sheetsBridgeReadyReject=null;throw Error('The browser blocked the Google connection popup. Allow popups for the MBBS Recall site and retry.')}
   const timer=setTimeout(()=>{if(!sheetsBridgeReady){if(sheetsBridgeReadyReject)sheetsBridgeReadyReject(Error('The Apps Script bridge did not connect. Check that the latest Code.gs and Bridge.html are deployed, and that the deployment is accessible to your Google account.'));sheetsBridgeReadyResolve=null;sheetsBridgeReadyReject=null}},20000);
   return ready.finally(()=>clearTimeout(timer));
