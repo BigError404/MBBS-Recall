@@ -1,4 +1,4 @@
-const CACHE='mbbs-recall-pro-v7.4-header-and-bridge-fix';
+const CACHE='mbbs-recall-pro-v7.5-popup-bridge';
 const CORE=['./','./index.html','./manifest.json','./icon.svg','./engine.js','./app.js','./workbook-seed.js','./xlsx-import.js'];
 const NETWORK_TIMEOUT_MS=4000;
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));});
