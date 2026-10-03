@@ -30,6 +30,40 @@ jobs:
           node --check /tmp/index-client.js
       - name: Check Apps Script server JavaScript syntax
         run: node --check < apps-script/Code.gs
+      - name: Check PWA and sync bridge JavaScript syntax
+        run: |
+          node --check app.js
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('apps-script/Bridge.html').read_text()
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          assert scripts, 'No bridge script found'
+          Path('/tmp/bridge.js').write_text('\\n'.join(scripts))
+          PY
+          node --check /tmp/bridge.js
+      - name: Check sync security and conflict guards
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          app=Path('app.js').read_text()
+          gs=Path('apps-script/Code.gs').read_text()
+          bridge=Path('apps-script/Bridge.html').read_text()
+          checks={
+            'PWA uses popup bridge, not exposed tokens':'window.open(base+\'?bridge=1#\'+sheetsBridgeNonce' in app,
+            'PWA refuses sync without baseline':'if(!baseline){sheetsSyncStatus(' in app,
+            'PWA blocks two-sided edit conflicts':'localChanged&&remoteChanged&&!sheetsCardsEqual(local,sheetsRemoteCard(r))' in app,
+            'PWA never sync-deletes Sheet records':'deletions are never pushed to the Sheet' in app,
+            'Apps Script exposes full read snapshot':'function getSyncSnapshot()' in gs,
+            'Apps Script checks optimistic edit snapshots':'current.some((v,i)=>String(v)!==String(u.expectedSnapshot[i] ?? \'\'))' in gs,
+            'Apps Script writes only input columns':'MASTER_INPUT_COLS: 9' in gs and 'REVISION_INPUT_COLS: 4' in gs,
+            'Bridge restricts caller to official Pages origin':"const ALLOWED_ORIGIN='https://bigerror404.github.io'" in bridge,
+            'Bridge exposes only explicit sync methods':"m.method==='getSyncSnapshot'" in bridge and "m.method==='syncApplyChanges'" in bridge,
+            'Bridge does not dispatch arbitrary method names':'.getSyncSnapshot();' in bridge and '.syncApplyChanges(payload||{});' in bridge,
+          }
+          for k,v in checks.items(): print(('PASS' if v else 'FAIL')+' '+k)
+          assert all(checks.values())
+          PY
       - name: Check Apps Script safety contract
         run: |
           python3 - <<'PY'
