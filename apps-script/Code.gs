@@ -268,23 +268,48 @@ function requireSheet_(ss,name){if(!ss)throw new Error('Spreadsheet context unav
 function withLock_(fn){const lock=LockService.getScriptLock();if(!lock.tryLock(CFG.LOCK_MS))throw new Error('Another save is in progress. Wait a moment and retry.');try{return fn();}finally{lock.releaseLock();}}
 
 
-/** Returns distinct subjects and subject-specific units from Master Entry. */
+/**
+ * Returns the full subject/unit catalog from Units Config, not just subjects
+ * that already have an IMP in Master Entry. Existing Master Entry values are
+ * unioned in so legacy units remain selectable while the catalog is maintained.
+ * Units Config layout: subject headers in row 1 (A:L), units in rows 2:201.
+ */
 function getSubjectUnitOptions() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sh = requireSheet_(ss, CFG.MASTER);
-  const last = lastDataRow_(sh, CFG.MASTER_FIRST_ROW, 1);
-  if (last < CFG.MASTER_FIRST_ROW) return {subjects: [], unitsBySubject: {}};
-  const rows = sh.getRange(CFG.MASTER_FIRST_ROW, 3, last-CFG.MASTER_FIRST_ROW+1, 2).getDisplayValues();
-  const subjects = new Set();
+  const master = requireSheet_(ss, CFG.MASTER);
+  const config = ss.getSheetByName('Units Config');
+  if (!config) throw new Error('Required tab not found: Units Config. Subject and unit choices must come from the workbook catalog, not only from test IMPs.');
+  const headers = config.getRange(1, 1, 1, Math.min(12, config.getMaxColumns())).getDisplayValues()[0];
+  const catalogRows = config.getRange(2, 1, Math.min(200, Math.max(1, config.getMaxRows() - 1)), headers.length).getDisplayValues();
   const unitsBySubject = {};
-  rows.forEach(([subject, unit]) => {
-    subject = String(subject || '').trim();
-    unit = String(unit || '').trim();
+  const subjects = new Set();
+  headers.forEach((value, col) => {
+    const subject = String(value || '').trim();
     if (!subject) return;
     subjects.add(subject);
-    if (!unitsBySubject[subject]) unitsBySubject[subject] = [];
-    if (unit && !unitsBySubject[subject].includes(unit)) unitsBySubject[subject].push(unit);
+    unitsBySubject[subject] = [];
+    catalogRows.forEach(row => {
+      const unit = String(row[col] || '').trim();
+      if (unit && !unitsBySubject[subject].includes(unit)) unitsBySubject[subject].push(unit);
+    });
   });
+
+  // Preserve any subjects/units already used in records, even if a legacy
+  // unit was removed from Units Config; this avoids breaking old IMP edits.
+  const last = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
+  if (last >= CFG.MASTER_FIRST_ROW) {
+    const rows = master.getRange(CFG.MASTER_FIRST_ROW, 3, last-CFG.MASTER_FIRST_ROW+1, 2).getDisplayValues();
+    rows.forEach(([subjectValue, unitValue]) => {
+      const subject = String(subjectValue || '').trim();
+      const unit = String(unitValue || '').trim();
+      if (!subject) return;
+      subjects.add(subject);
+      if (!unitsBySubject[subject]) unitsBySubject[subject] = [];
+      if (unit && !unitsBySubject[subject].includes(unit)) unitsBySubject[subject].push(unit);
+    });
+  }
+
+  Object.keys(unitsBySubject).forEach(subject => unitsBySubject[subject].sort((a,b)=>a.localeCompare(b)));
   return {
     subjects: Array.from(subjects).sort((a,b)=>a.localeCompare(b)),
     unitsBySubject: unitsBySubject
