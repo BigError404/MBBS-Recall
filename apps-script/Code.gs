@@ -101,7 +101,11 @@ function archiveRecord(input) {
     archive.getRange(archiveRow, 1, 1, 12).setValues([[new Date(), CFG.MASTER, row, ...rawCurrent]]);
     SpreadsheetApp.flush();
     const verified = archive.getRange(archiveRow, 4, 1, CFG.MASTER_INPUT_COLS).getValues()[0];
-    if (String(verified[0]) !== String(rawCurrent[0])) throw new Error('Archive copy verification failed. The Master Entry row was left untouched.');
+    if (!sameCells_(verified, rawCurrent)) {
+      archive.getRange(archiveRow, 1, 1, 13).clearContent();
+      SpreadsheetApp.flush();
+      throw new Error('Archive copy verification failed for one or more fields. The Master Entry row was left untouched.');
+    }
     // Clear only user-input columns A:I. Never delete the row or touch formula columns J:AC.
     sh.getRange(row, 1, 1, CFG.MASTER_INPUT_COLS).clearContent();
     SpreadsheetApp.flush();
@@ -114,6 +118,7 @@ function listArchive(limit) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sh = ss.getSheetByName(CFG.ARCHIVE);
   if (!sh || sh.getLastRow() < 2) return [];
+  ensureArchiveLayout_(sh);
   const cap = Math.max(1, Math.min(Number(limit) || 50, 200));
   const last = sh.getLastRow(), start = Math.max(2, last - cap + 1);
   return sh.getRange(start, 1, last - start + 1, 13).getDisplayValues().map((r,i)=>({
@@ -138,18 +143,30 @@ function restoreArchived(input) {
     const original = saved.slice(3,12);
     if (!original[0]) throw new Error('Archive entry has no IMP ID.');
     const last = lastDataRow_(master, CFG.MASTER_FIRST_ROW, 1);
-    const existingIds = last >= CFG.MASTER_FIRST_ROW ? master.getRange(CFG.MASTER_FIRST_ROW,1,last-CFG.MASTER_FIRST_ROW+1,1).getDisplayValues().flat().map(String) : [];
-    if (existingIds.includes(String(original[0]))) throw new Error('This IMP ID already exists in Master Entry. No duplicate was restored.');
+    const masterValues = last >= CFG.MASTER_FIRST_ROW
+      ? master.getRange(CFG.MASTER_FIRST_ROW, 1, last-CFG.MASTER_FIRST_ROW+1, CFG.MASTER_INPUT_COLS).getValues()
+      : [];
+    const duplicateIndex = masterValues.findIndex(r => String(r[0]) === String(original[0]));
+    if (duplicateIndex >= 0) {
+      const existing = masterValues[duplicateIndex];
+      if (!sameCells_(existing, original)) {
+        throw new Error('This IMP ID already exists with different content. Nothing was changed; compare Master Entry and the archive before deciding which copy to keep.');
+      }
+      const status = 'RESTORED '+new Date().toISOString();
+      archive.getRange(ar,13).setValue(status);
+      SpreadsheetApp.flush();
+      return {ok:true,id:original[0],row:CFG.MASTER_FIRST_ROW+duplicateIndex,message:'This exact IMP already exists in Master Entry. No duplicate was created; the archive entry was marked recovered.'};
+    }
     const originalRow = Number(saved[2]);
-    const target = Number.isInteger(originalRow) && originalRow >= CFG.MASTER_FIRST_ROW &&
-      originalRow <= master.getMaxRows() &&
-      master.getRange(originalRow,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0].every(v=>!String(v).trim())
+    const originalRowValues = Number.isInteger(originalRow) && originalRow >= CFG.MASTER_FIRST_ROW && originalRow <= master.getMaxRows()
+      ? master.getRange(originalRow,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0] : null;
+    const target = originalRowValues && originalRowValues.every(v=>!String(v).trim())
       ? originalRow : Math.max(CFG.MASTER_FIRST_ROW,last+1);
     master.getRange(target,1,1,CFG.MASTER_INPUT_COLS).setValues([original]);
     SpreadsheetApp.flush();
-    const restoredCheck = master.getRange(target,1,1,CFG.MASTER_INPUT_COLS).getDisplayValues()[0];
-    if (String(restoredCheck[0]) !== String(original[0])) throw new Error('Restore verification failed. The archive copy was retained; check Master Entry before retrying.');
-    // Mark only after the restored row has been verified. Ensure column M exists first.
+    const restoredCheck = master.getRange(target,1,1,CFG.MASTER_INPUT_COLS).getValues()[0];
+    if (!sameCells_(restoredCheck, original)) throw new Error('Restore verification failed for one or more fields. The archive copy was retained; check Master Entry before retrying.');
+    // Mark only after all nine restored input fields have been verified.
     archive.getRange(ar,13).setValue('RESTORED '+new Date().toISOString());
     SpreadsheetApp.flush();
     return {ok:true,id:original[0],row:target,message:'Restored and verified in Master Entry. Archive copy retained; formula columns were not written.'};
@@ -229,6 +246,12 @@ function ensureArchiveLayout_(sh) {
   const headers = ['Archived At','Original Sheet','Original Row','IMP ID','Entry Date','Subject','Unit','Question','Answer Key Points','Source','Notes','Priority','Archive Status'];
   const current = sh.getRange(1, 1, 1, 13).getDisplayValues()[0];
   if (current.every(v => !String(v).trim())) sh.getRange(1, 1, 1, 13).setValues([headers]);
+  else if (!String(current[12] || '').trim()) sh.getRange(1, 13).setValue(headers[12]);
+}
+function sameCells_(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  const key = v => v instanceof Date ? 'DATE:' + v.getTime() : (v === null || v === undefined ? '' : String(v));
+  return a.every((v, i) => key(v) === key(b[i]));
 }
 function dateValue_(input, existingRaw, existingDisplay) {
   const value = String(input || '').trim();
